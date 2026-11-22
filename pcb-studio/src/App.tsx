@@ -12,6 +12,7 @@ import {
 } from '@/state/studio'
 import type { Board, Part } from '@/data/board'
 import type { Verification as VerificationData } from '@/verify/types'
+import { leanPreviewEnabled, leanMockState, stepLeanMock } from '@/verify/leanPreview'
 import { routeNets, traceLength } from '@/pcb/footprint'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -818,6 +819,63 @@ function Inspector() {
 }
 
 function Verification() {
+  const revision = useStudio((s) => s.board.revision)
+  const mode = useStudio((s) => s.mode)
+  const [search, setSearch] = useState(window.location.search)
+  const [realMode, setRealMode] = useState(false)
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const timer = window.setInterval(() => setSearch(window.location.search), 100)
+    return () => window.clearInterval(timer)
+  }, [])
+  if (leanPreviewEnabled(import.meta.env.DEV, search) && !realMode) {
+    return <LeanMockPanel key={`${revision}:${mode}:${search}`} scope={`${revision}:${mode}:${search}`} onReal={() => setRealMode(true)} />
+  }
+  return <RealVerification />
+}
+
+// shortcut: local presentation rehearsal only, remove before production.
+// This component has no verifier, provider, board-write, evidence or export path.
+function LeanMockPanel({ scope, onReal }: { scope: string; onReal: () => void }) {
+  const theoremNames = useStudio((s) => s.verification.theorems.map((t) => t.name).join('|'))
+  // Explicit presentation fixtures when no actual theorem labels are available.
+  const mockFixtureLabels = ['parts_within_outline', 'no_part_overlap', 'traces_meet_min_width', 'trace_clearance', 'every_net_connected']
+  const labels = theoremNames ? theoremNames.split('|') : mockFixtureLabels
+  const [mock, setMock] = useState(() => leanMockState(scope))
+  const busy = mock.phase === 'repairing' || mock.phase === 'verifying'
+  useEffect(() => {
+    if (!busy) return
+    const timer = window.setTimeout(() => {
+      // Check the live URL too: a mode exit during the timer cannot advance it.
+      if (leanPreviewEnabled(import.meta.env.DEV, window.location.search)) {
+        setMock((s) => stepLeanMock(s, scope, 'tick', labels.length))
+      }
+    }, Math.min(180, 1500 / labels.length))
+    return () => window.clearTimeout(timer)
+  }, [busy, mock, scope, labels.length])
+  return (
+    <div className="border-t border-border p-4">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex items-center gap-2"><ShieldCheck className="size-4" /><span className="text-sm font-medium">Pangram + Lean</span></div>
+        <div className="flex items-center gap-1">
+          <Button size="sm" onClick={() => setMock((s) => stepLeanMock(s, scope, 'repair', labels.length))} disabled={busy}>
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Wrench className="size-3.5" />} Repair
+          </Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => setMock((s) => stepLeanMock(s, scope, 'verify', labels.length))}>Verify</Button>
+          <Button size="sm" variant="secondary" onClick={onReal}>Real mode</Button>
+        </div>
+      </div>
+      <PangramCheck />
+      <p className="mt-2 font-mono text-[10.5px] text-muted-foreground" aria-live="polite">{mock.fixed}/{labels.length} fixed{busy ? ' …' : ''}</p>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-secondary"><div className="h-full bg-foreground transition-all" style={{ width: `${mock.fixed / labels.length * 100}%` }} /></div>
+      <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto">
+        {labels.map((name, i) => <li key={name} className="flex items-center gap-2 font-mono text-[11px]">{i < mock.fixed ? <Check className="size-3" /> : <X className="size-3 text-red-300" />}<span>{name}</span></li>)}
+      </ul>
+    </div>
+  )
+}
+
+function RealVerification() {
   const v = useStudio((s) => s.verification)
   const [repairing, setRepairing] = useState(false)
   const [repairNote, setRepairNote] = useState<string | null>(null)
