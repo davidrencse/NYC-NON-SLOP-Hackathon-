@@ -4,12 +4,13 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { CameraControls, Html } from '@react-three/drei'
+import { CameraControls } from '@react-three/drei'
 import { byId } from '@/data/catalog'
 import type { Board } from '@/data/board'
 import { BUS_COLOR, type Prim, type PrimMaterial, type SystemDesign, type SystemDevice } from '@/data/system'
 import { routeNets } from '@/pcb/footprint'
 import { getStudio, setStudio, useStudio } from '@/state/studio'
+import { SceneLabel } from './SceneLabel'
 import { buildDevice } from './devices'
 import { partHeight } from './packages'
 import { BoardMesh, ExportBridge, Parts } from './Scene'
@@ -276,18 +277,12 @@ function Device({ d, index, sys, onReady }: { d: SystemDevice; index: number; sy
     >
       <primitive object={model} />
       {showCallouts && (
-        <Html
+        <SceneLabel
           position={d.stand ? [0, 4, item.dimensions.h / 2 + 8] : [d.bus === 'motor' ? item.dimensions.w * 0.1 : 0, tag + 8, 0]}
-          center
-          zIndexRange={[20, 0]}
-          style={{ pointerEvents: 'none' }}
-        >
-          <div className={`forge-tag ${selected ? 'is-active' : ''} ${hovered ? 'is-hover' : ''}`}>
-            <span className="forge-tag-n">{String(index + 1).padStart(2, '0')}</span>
-            <span>{item.name}</span>
-            <span className="forge-tag-sub">{d.port}</span>
-          </div>
-        </Html>
+          fields={[String(index + 1).padStart(2, '0'), item.name, d.port]}
+          className={`forge-tag ${selected ? 'is-active' : ''} ${hovered ? 'is-hover' : ''}`}
+          visible={!new URLSearchParams(location.search).has('demo-view') || selected || hovered}
+        />
       )}
     </group>
   )
@@ -365,7 +360,7 @@ const HERO_TARGET = new THREE.Vector3(0, -6, 0)
  * Systems without a structure (rover, wristband) keep the fixed pose.
  */
 function heroPose(sys: SystemDesign): { pos: THREE.Vector3; target: THREE.Vector3 } {
-  if (!sys.structure?.length) return { pos: HERO, target: HERO_TARGET }
+  if (!sys.structure?.length) return { pos: new URLSearchParams(location.search).has('demo-view') ? HERO.clone().multiplyScalar(0.58) : HERO, target: HERO_TARGET }
   const box = new THREE.Box3()
   for (const p of sys.structure) {
     const half = p.shape === 'box' ? Math.max(...p.size) / 2 : Math.max(p.size[0], p.size[1] / 2)
@@ -565,7 +560,7 @@ export function SystemRoot() {
         {sys.structure && <Structure prims={sys.structure} />}
         <Pcb sys={sys} />
         {sys.devices.map((d, i) => (
-          <Device key={d.id + d.catalogId} d={d} index={i} sys={sys} onReady={onReady} />
+          <Device key={d.id} d={d} index={i} sys={sys} onReady={onReady} />
         ))}
         <Cables sys={sys} groups={groups} pcb={pcbRef} />
       </group>

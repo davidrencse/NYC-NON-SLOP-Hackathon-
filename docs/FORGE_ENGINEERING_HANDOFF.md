@@ -85,3 +85,24 @@ The default voxel flow asks for a rover problem/change brief, validated intent (
 Optional animation controls are collapsed in a native details element. Existing orbit/camera/crew inspection remain; Inspect rover is the next useful scene navigation. Evidence/options/advisory settings are progressively disclosed. No extra theme or wow-mode framework.
 
 `POST /api/consumer-repair/{id}/plan` with `{base_revision:number}` returns a revision-bound JSON plan; stale revision is 409 and the request does not mutate history. UI downloads it as `forge-rover-plan-rev-N.json`. It records the selected current draft part vs original, priorities/brief, actual catalog unit and known subtotal, unknown total, full important catalog specs/provenance (including approximate-field flags), alternative rejections, unresolved warnings and concrete inspection/measurement/documentation next steps. It is an investigation plan, not safe installation instructions. HTTP regression checks plan content both after apply and after undo, stale export rejection and original editor/embedded route reachability. No paid inference was repeated; real Reducto failure is not demo evidence.
+
+## Coordinator review follow-up
+
+Reproduced the synchronous-root-unmount error by extending `scripts/voxel-browser-smoke.mjs` to collect `Runtime.consoleAPICalled` errors in addition to exceptions; the prior smoke failed with the reported React error. Source: Drei `web/Html.js` cleanup calls `currentRoot.unmount()` inside its layout-effect cleanup; catalog-keyed system devices remounted these labels during apply/undo. Both shared callers (`scene/System.tsx` and `scene/Scene.tsx`) now use `scene/SceneLabel.tsx`: static DOM text projected from scene anchors, normal element cleanup, no nested React roots. Device identity is stable by device ID; models still update by catalog ID. No dependency patch or console-error allowance.
+
+Embedded-only camera is closer, grid hidden, labels shown only for selected/hovered devices. Bound session selects its target; browser asserts exactly one visible label after apply. Full editor retains its grid, callout controls and normal camera. Default form keeps brief/priorities/target/action; budget and intent move into existing collapsed settings; motor/options use catalog/human names instead of raw IDs. Friend scene is unchanged. Screenshots `/tmp/forge-voxel-browser.png` and `/tmp/forge-voxel-draft.png` were inspected.
+
+`consumer-start.py` now polls both owned children, reports unexpected child exit/code with port guidance, and terminates/waits for its sibling. Three mocked regression tests in `tests/test_consumer_start.py` cover either child exiting, main failure/cleanup, and owned-child-only cleanup. No coordinator process was stopped/restarted.
+
+Latest verification: **116 Python +31 TS +3 UI** pass; build passes, lint retains 10 warnings. Against coordinator's already-running stack (no `--launch`): browser **9407.091 ms**, including apply/undo/download/full editor and Board↔System switching, **0 console errors**, **6 separately counted warnings**; HTTP **82.468 ms flow /116.072 ms including readiness**. No warnings are treated as errors or used to allow console errors. No paid calls.
+
+Reproduce against existing coordinator stack:
+```sh
+node scripts/voxel-browser-smoke.mjs
+node scripts/consumer-repair-smoke.mjs
+```
+For a NEW stack only, on free frontend :5173 (never launch over coordinator services):
+```sh
+FORGE_PORT=8001 FORGE_RESEARCH_URL=http://127.0.0.1:8001 uv run --locked --python 3.12 python scripts/consumer-start.py --env-file /path/to/private/.env --hermes-source /tmp/forge-hermes-agent
+```
+Keep using `/voxel-demo/` and `/?mode=engineer`. Mobile/raycast/manual-hardware checks remain limited; no physical approval or Reducto success claimed.

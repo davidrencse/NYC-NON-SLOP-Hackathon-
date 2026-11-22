@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 const profile = await mkdtemp(join(tmpdir(), 'forge-voxel-browser-'))
 const chrome = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-const children = [], pending = new Map(), errors = []
+const children = [], pending = new Map(), errors = [], warnings = []
 let socket, sequence = 0
 const start = performance.now()
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -36,7 +36,9 @@ try {
   socket.addEventListener('message', event => {
     const data = JSON.parse(event.data)
     if (data.id) { const job = pending.get(data.id); pending.delete(data.id); data.error ? job.reject(new Error(JSON.stringify(data.error))) : job.resolve(data.result) }
-    if (data.method === 'Runtime.exceptionThrown') errors.push(data.params.exceptionDetails)
+    if (data.method === 'Runtime.exceptionThrown') errors.push({ kind: 'exception', details: data.params.exceptionDetails })
+    if (data.method === 'Runtime.consoleAPICalled' && data.params.type === 'warning') warnings.push(data.params.args.map(arg => arg.value ?? arg.description))
+    if (data.method === 'Runtime.consoleAPICalled' && data.params.type === 'error') errors.push({ kind: 'console.error', args: data.params.args.map(arg => arg.value ?? arg.description) })
   })
   await send('Runtime.enable'); await send('Page.enable')
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
@@ -47,10 +49,11 @@ try {
   assert.equal(await evaluate(`getComputedStyle(document.getElementById('decision')).display !== 'none'`), true)
   await evaluate(`document.getElementById('motor').value='m2';document.getElementById('motor').dispatchEvent(new Event('change'));document.querySelector('[value="sentimental_value"]').click();document.getElementById('compare').click()`)
   await wait(`document.getElementById('decision-result').textContent.includes('Revision 0') && document.getElementById('renderer-state').textContent.includes('revision 0')`)
-  await evaluate(`const option=[...document.querySelectorAll('#decision-result details')].find(d=>d.querySelector('summary').textContent.includes('jga25'));option.open=true;document.querySelector('#decision-result input[type=checkbox]').click();option.querySelector('button').click()`)
+  await evaluate(`const option=[...document.querySelectorAll('#decision-result details')].find(d=>d.querySelector('summary').textContent.toLowerCase().includes('jga25'));option.open=true;document.querySelector('#decision-result input[type=checkbox]').click();option.querySelector('button').click()`)
   await wait(`document.getElementById('decision-result').textContent.includes('Revision 1') && document.getElementById('renderer-state').textContent.includes('revision 1')`)
   assert.equal(await evaluate(`document.getElementById('decision-result').textContent.includes('jga25-370-12v')`), true)
   await wait(`document.getElementById('prototype').contentDocument.body.textContent.includes('JGA25')`)
+  assert.equal(await evaluate(`[...document.getElementById('prototype').contentDocument.querySelectorAll('.forge-tag')].filter(tag=>getComputedStyle(tag).display!=='none').length`), 1)
   await evaluate(`document.getElementById('decision').scrollIntoView()`)
   const draftImage = await send('Page.captureScreenshot', { format: 'png' }); await writeFile('/tmp/forge-voxel-draft.png', Buffer.from(draftImage.data, 'base64'))
   await evaluate(`document.getElementById('undo').click()`)
@@ -64,8 +67,12 @@ try {
   const image = await send('Page.captureScreenshot', { format: 'png' }); await writeFile('/tmp/forge-voxel-browser.png', Buffer.from(image.data, 'base64'))
   await send('Page.navigate', { url: 'http://127.0.0.1:5173/?mode=engineer' })
   await wait(`!!document.querySelector('canvas') && document.body.textContent.includes('Research') && document.body.textContent.includes('Export')`)
+  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Board').click()`)
+  await sleep(900)
+  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='System').click()`)
+  await sleep(900)
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ browser: 'Chrome headless, real UI and renderer', elapsed_ms: performance.now() - start, revisions: [0, 1, 2], screenshot: '/tmp/forge-voxel-browser.png' }))
+  console.log(JSON.stringify({ browser: 'Chrome headless, real UI and renderer', elapsed_ms: performance.now() - start, revisions: [0, 1, 2], console_errors: errors.length, console_warnings: warnings.length, screenshot: '/tmp/forge-voxel-browser.png' }))
 } finally {
   socket?.close()
   for (const child of children) { try { process.kill(-child.pid, 'SIGTERM') } catch {} }

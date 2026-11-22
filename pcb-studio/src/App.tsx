@@ -958,7 +958,7 @@ export default function App() {
         if (!response.ok) throw new Error(`Session HTTP ${response.status}`)
         const session = await response.json()
         if (pending === sequence) {
-          setStudio({ system: session.analysis.system, scale: 'system', mode: 'engineer', touring: false })
+          setStudio({ system: session.analysis.system, device: session.analysis.component_id, scale: 'system', mode: 'engineer', touring: false })
           window.parent.postMessage({ type: 'forge-renderer-state', id, revision: session.revision }, location.origin)
         }
       } catch (error) {
