@@ -137,15 +137,50 @@
         <form id="composer" class="composer">
           <label for="brief">What are you building?</label>
           <textarea id="brief" name="brief" rows="4" maxlength="4000" required autocomplete="off" aria-describedby="brief-help" aria-keyshortcuts="Control+Enter Meta+Enter" placeholder="A wristband that detects finger gestures from forearm muscles and sends them to my laptop over Bluetooth. Under $100."></textarea>
-          <details class="source-policy-controls">
-            <summary>Research source policy · default 50% AI cutoff</summary>
-            <label><input id="source-policy-enabled" type="checkbox" checked> Filter original research sources with Pangram</label>
-            <label for="source-ai-cutoff">Exclude sources at or above this AI-detected fraction (%)</label>
-            <input id="source-ai-cutoff" type="number" min="0" max="100" step="1" value="50" required>
-            <label><input id="source-include-assisted" type="checkbox"> Include AI-assisted text in the cutoff</label>
-            <label for="source-max-retries">Additional source-discovery rounds</label>
-            <select id="source-max-retries"><option value="0">No retry</option><option value="1" selected>1 retry</option><option value="2">2 retries</option></select>
-            <p>Above-cutoff sources are excluded from accepted research, retained in the audit, and replaced where possible. Missing scans stay unverified. Technical documents can trigger false positives; this is an authorship policy, not a truth guarantee.</p>
+          <details class="policy" id="source-policy">
+            <summary class="policy-summary">
+              <span class="policy-name">Source filter</span>
+              <span class="policy-value" id="policy-value">Pangram · drop sources ≥ 50% AI · 1 retry</span>
+              <span class="policy-edit" aria-hidden="true">Adjust</span>
+            </summary>
+            <div class="policy-body">
+              <div class="policy-row">
+                <div class="policy-text">
+                  <span class="policy-title" id="pol-enabled-label">Screen sources with Pangram</span>
+                  <span class="policy-help">Datasheets and articles that read as AI-written are left out of the research.</span>
+                </div>
+                <input id="source-policy-enabled" class="switch" type="checkbox" role="switch" checked aria-labelledby="pol-enabled-label">
+              </div>
+              <div class="policy-row policy-dep">
+                <div class="policy-text">
+                  <label class="policy-title" for="source-ai-cutoff">Cutoff</label>
+                  <span class="policy-help">Drop a source when this much of it looks AI-generated.</span>
+                </div>
+                <div class="policy-range">
+                  <input id="source-ai-cutoff" type="range" min="10" max="100" step="5" value="50" aria-describedby="cutoff-out">
+                  <output id="cutoff-out" for="source-ai-cutoff">50%</output>
+                </div>
+              </div>
+              <div class="policy-row policy-dep">
+                <div class="policy-text">
+                  <span class="policy-title" id="pol-assist-label">Count AI-assisted text</span>
+                  <span class="policy-help">Off: only fully AI-generated passages count toward the cutoff.</span>
+                </div>
+                <input id="source-include-assisted" class="switch" type="checkbox" role="switch" aria-labelledby="pol-assist-label">
+              </div>
+              <div class="policy-row policy-dep">
+                <div class="policy-text">
+                  <span class="policy-title" id="pol-retry-label">Find replacements</span>
+                  <span class="policy-help">Extra search rounds to replace sources that were dropped.</span>
+                </div>
+                <div class="segmented" role="radiogroup" aria-labelledby="pol-retry-label">
+                  <label><input type="radio" name="source-max-retries" value="0"><span>None</span></label>
+                  <label><input type="radio" name="source-max-retries" value="1" checked><span>1 round</span></label>
+                  <label><input type="radio" name="source-max-retries" value="2"><span>2 rounds</span></label>
+                </div>
+              </div>
+              <p class="policy-note">Dropped sources stay visible in the audit. Detectors can misread dense technical writing, so this filters by likely authorship, not by accuracy.</p>
+            </div>
           </details>
           <div class="composer-foot">
             <span id="brief-help" class="shortcut"><kbd id="modifier">Ctrl</kbd>+<kbd>Enter</kbd></span>

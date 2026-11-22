@@ -157,7 +157,7 @@ async function startResearch(mode) {
         enabled: $("#source-policy-enabled").checked,
         exclude_at_ai_fraction: Number($("#source-ai-cutoff").value) / 100,
         include_ai_assisted: $("#source-include-assisted").checked,
-        max_retries: Number($("#source-max-retries").value),
+        max_retries: Number($("input[name=source-max-retries]:checked")?.value ?? 1),
       }
     );
     latestCompletedReport = report;
@@ -326,3 +326,18 @@ sessionLoaded = Promise.all([
   .catch(() => {
     connection.lastElementChild.textContent = "Server unavailable";
   });
+
+// Source filter: keep the one-line summary in sync with the controls.
+function syncPolicy() {
+  const on = $("#source-policy-enabled").checked;
+  const cutoff = $("#source-ai-cutoff").value;
+  const rounds = Number($("input[name=source-max-retries]:checked")?.value ?? 1);
+  $("#cutoff-out").textContent = cutoff + "%";
+  $("#source-policy").classList.toggle("is-off", !on);
+  for (const el of document.querySelectorAll(".policy-dep input")) el.disabled = !on;
+  $("#policy-value").textContent = on
+    ? `Pangram · drop sources ≥ ${cutoff}% ${$("#source-include-assisted").checked ? "AI or AI-assisted" : "AI"} · ${rounds ? rounds + (rounds > 1 ? " retries" : " retry") : "no retry"}`
+    : "Off · every source is used";
+}
+$("#source-policy")?.addEventListener("input", syncPolicy);
+syncPolicy();
