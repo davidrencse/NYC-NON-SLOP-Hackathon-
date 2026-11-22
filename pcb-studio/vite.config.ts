@@ -1,13 +1,14 @@
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, type Plugin } from 'vite'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath, URL } from 'node:url'
 import { forgeAi } from './server/index.ts'
 import { verifyPlugin } from './server/verify.ts'
 import { shopPlugin } from './server/shop.ts'
 import { repairPlugin } from './server/repair.ts'
+import { consumerRepairPlugin } from './server/consumer-repair.ts'
 
 const RESEARCH = process.env.FORGE_RESEARCH_URL ?? 'http://127.0.0.1:8000'
 
@@ -29,6 +30,22 @@ function advertiseUrl(): Plugin {
 
 // One app: `npm run dev` also starts the research server (FastAPI on :8000) unless one
 // is already answering, and stops it when Vite exits.
+function voxelDemo(): Plugin {
+  return { name: 'forge-voxel-demo', configureServer(server) {
+    server.middlewares.use(async (req, res, next) => {
+      const path = (req.url ?? '').split('?')[0]
+      if (!path.startsWith('/voxel-demo/')) return next()
+      const file = path.slice('/voxel-demo/'.length) || 'index.html'
+      if (!/^(index\.html|app\.js|decision\.js|style\.css|instrument\.woff2|vendor\/three\.(core|module)\.js)$/.test(file)) { res.statusCode = 404; return res.end() }
+      try {
+        const data = await readFile(fileURLToPath(new URL(`../voxel-demo/${file}`, import.meta.url)))
+        res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.woff2') ? 'font/woff2' : 'text/html')
+        res.end(data)
+      } catch { res.statusCode = 404; res.end() }
+    })
+  } }
+}
+
 function researchServer(): Plugin {
   let child: ChildProcess | null = null
   return {
@@ -55,7 +72,7 @@ function researchServer(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), forgeAi(), verifyPlugin(), shopPlugin(), repairPlugin(), advertiseUrl(), researchServer()],
+  plugins: [voxelDemo(), react(), tailwindcss(), forgeAi(), verifyPlugin(), shopPlugin(), repairPlugin(), consumerRepairPlugin(), advertiseUrl(), researchServer()],
   // The research swarm (forge_research FastAPI) runs on :8000. Its page is shown in the
   // Research tab under /research; its own /api and /static paths are forwarded too.
   // /api/generate and /api/verify are served by the plugins above and never reach it.
@@ -78,7 +95,8 @@ export default defineConfig({
         proxyTimeout: 0,
         bypass(req) {
           const url = req.url ?? ''
-          if (/^\/api\/(generate|verify|repair|shop|chassis|chat)(\/|$|\?)/.test(url)) return url
+          if (url.startsWith('/api/consumer-repair/manual')) return
+          if (/^\/api\/(generate|verify|repair|shop|chassis|chat|consumer-repair)(\/|$|\?)/.test(url)) return url
         },
       },
     },

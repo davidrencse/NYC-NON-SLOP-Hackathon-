@@ -1,4 +1,4 @@
-import { retail, type BoardHeader, type CatalogItem, type MountingHole } from './types'
+import { retail, type BoardHeader, type CatalogItem, type MountingHole } from './types.ts'
 
 /**
  * Dev boards. Hole figures for the Uno come from the published inch outline

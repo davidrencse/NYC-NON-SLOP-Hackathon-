@@ -1,8 +1,8 @@
 // System-scale assembly: the custom PCB plus the off-board devices it drives.
 // Coordinates in mm, world X right, Z toward the viewer (rover front is -Z).
-import { byId, catalog, type CatalogItem } from './catalog'
-import { WEARABLE, WRIST, ROVER, VEHICLE, FLYER, EYEWEAR, BREWER, LAMP, PRINTER } from './bodyPolicy'
-export { hasBuiltInBody as hasHandBuiltBody } from './bodyPolicy'
+import { byId, catalog, type CatalogItem } from './catalog/index.ts'
+import { WEARABLE, WRIST, ROVER, VEHICLE, FLYER, EYEWEAR, BREWER, LAMP, PRINTER } from './bodyPolicy.ts'
+export { hasBuiltInBody as hasHandBuiltBody } from './bodyPolicy.ts'
 
 export type Bus = 'power' | 'motor' | 'i2c' | 'gpio' | 'data'
 
@@ -436,7 +436,7 @@ export function alternativesFor(dev: SystemDevice): Alternative[] {
     const reasons: string[] = []
     const warnings: string[] = []
     if (isCur) reasons.push('Current selection')
-    if (listed) reasons.push('Drop-in alternate')
+    if (listed) reasons.push('Catalog-listed alternative; fit unverified')
     if (shared.length) reasons.push(`Shares ${shared.map((s) => s.toUpperCase()).join(' / ')}`)
     const railOk = item.voltage.min <= dev.rail + 0.05 && item.voltage.max >= dev.rail - 0.05
     if (railOk) reasons.push(`Runs on ${dev.rail} V rail`)

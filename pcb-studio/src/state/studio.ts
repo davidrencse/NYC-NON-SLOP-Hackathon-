@@ -106,9 +106,9 @@ export function computeBoardBomCost(
 
 let state: StudioState = {
   scale: 'system',
-  // A fresh load or refresh always starts on the research front page. Only a brief
-  // handed over in the URL opens the studio directly.
-  mode: new URLSearchParams(location.search).has('brief') ? 'engineer' : 'research',
+  // A fresh load starts on the research front page. A handed-off brief, or an
+  // embedded rover preview, opens the studio directly.
+  mode: new URLSearchParams(location.search).has('brief') || new URLSearchParams(location.search).get('mode') === 'engineer' ? 'engineer' : 'research',
   pendingPrompt: briefFromUrl(),
   brief: briefFromUrl(),
   system: briefFromUrl() ? systemFromPrompt(briefFromUrl()!) : defaultSystem,

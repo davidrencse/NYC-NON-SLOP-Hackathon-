@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
-import { CameraControls, Html, Line } from '@react-three/drei'
+import { CameraControls, Line } from '@react-three/drei'
 import { EffectComposer, N8AO, SMAA, Bloom } from '@react-three/postprocessing'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { Board, Part } from '@/data/board'
@@ -12,6 +12,7 @@ import { getStudio, setStudio, useStudio } from '@/state/studio'
 import { createBoardArtwork } from './boardTexture'
 import { buildPart, partHeight } from './packages'
 import { surfaceMap } from './vendor/surface-maps'
+import { SceneLabel } from './SceneLabel'
 import { SystemRoot } from './System'
 import { handoff, takeHandoff } from './handoff'
 
@@ -64,7 +65,7 @@ function Studio() {
         <planeGeometry args={[2000, 2000]} />
         <meshStandardMaterial color={0x141518} roughness={0.96} />
       </mesh>
-      <gridHelper args={sys ? [1200, 120, 0x2c2f34, 0x1c1e22] : [400, 80, 0x2c2f34, 0x1c1e22]} position-y={floorY + 0.02} visible={!back} userData={{ noExport: true }} />
+      <gridHelper args={sys ? [1200, 120, 0x2c2f34, 0x1c1e22] : [400, 80, 0x2c2f34, 0x1c1e22]} position-y={floorY + 0.02} visible={!back && !new URLSearchParams(location.search).has('demo-view')} userData={{ noExport: true }} />
     </>
   )
 }
@@ -225,13 +226,7 @@ export function Parts({ board, passive = false }: { board: Board; passive?: bool
         >
           <primitive object={models[i]} />
           {showCallouts && !passive && p.major && (
-            <Html position={[0, partHeight(p) + 1.6, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none' }}>
-              <div className={`forge-tag ${selected === p.ref ? 'is-active' : ''}`}>
-                <span className="forge-tag-n">{String(majors.indexOf(p.ref) + 1).padStart(2, '0')}</span>
-                <span>{p.ref}</span>
-                <span className="forge-tag-sub">{p.name}</span>
-              </div>
-            </Html>
+            <SceneLabel position={[0, partHeight(p) + 1.6, 0]} fields={[String(majors.indexOf(p.ref) + 1).padStart(2, '0'), p.ref, p.name]} className={`forge-tag ${selected === p.ref ? 'is-active' : ''}`} />
           )}
         </group>
       ))}

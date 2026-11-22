@@ -1022,6 +1022,35 @@ function StatusBar() {
 export default function App() {
   const scale = useStudio((s) => s.scale)
   const mode = useStudio((s) => s.mode)
+  const device = useStudio((s) => s.device)
+  const embedded = new URLSearchParams(location.search).has('demo-view')
+  useEffect(() => {
+    if (!embedded) return
+    window.parent.postMessage({ type: 'forge-selection', device }, location.origin)
+  }, [device, embedded])
+  useEffect(() => {
+    if (!embedded) return
+    let sequence = 0
+    const on = async (event: MessageEvent) => {
+      if (event.origin !== location.origin || event.source !== window.parent || event.data?.type !== 'forge-session') return
+      const id = event.data.id
+      if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) return
+      const pending = ++sequence
+      try {
+        const response = await fetch(`/api/consumer-repair/${id}/summary`)
+        if (!response.ok) throw new Error(`Session HTTP ${response.status}`)
+        const session = await response.json()
+        if (pending === sequence) {
+          setStudio({ system: session.analysis.system, device: session.analysis.component_id, scale: 'system', mode: 'engineer', touring: false })
+          window.parent.postMessage({ type: 'forge-renderer-state', id, revision: session.revision }, location.origin)
+        }
+      } catch (error) {
+        window.parent.postMessage({ type: 'forge-renderer-state', id, error: String(error) }, location.origin)
+      }
+    }
+    window.addEventListener('message', on)
+    return () => window.removeEventListener('message', on)
+  }, [embedded])
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return
@@ -1034,6 +1063,7 @@ export default function App() {
     window.addEventListener('keydown', on)
     return () => window.removeEventListener('keydown', on)
   }, [])
+  if (embedded) return <div className="h-dvh w-full bg-background"><PcbScene /></div>
   return (
     <TooltipProvider delayDuration={250}>
       <ResearchPane />

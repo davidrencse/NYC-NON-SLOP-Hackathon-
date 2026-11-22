@@ -153,7 +153,7 @@ let statusN = -1;
 function drawStatus(n, t) {
   const k = n * 2 + (n >= 5 && Math.floor(t * 2) % 2); if (k === statusN) return; statusN = k;
   const g = statusTex.userData.ctx; px(g, 0, 0, 64, 24, 0x101818);
-  g.font = 'bold 7px monospace'; g.fillStyle = '#9fdcc0'; g.textBaseline = 'top'; g.fillText(n >= 5 ? 'BUILD OK' : 'ASSEMBLY', 3, 2);
+  g.font = 'bold 7px monospace'; g.fillStyle = '#9fdcc0'; g.textBaseline = 'top'; g.fillText(n >= 5 ? 'DRAFT ONLY' : 'ILLUSTRATION', 3, 2);
   for (let i = 0; i < 5; i++) px(g, 3 + i * 12, 13, 10, 7, i < n ? 0x7fdcb0 : 0x2a3a38);
   statusTex.needsUpdate = true;
 }
@@ -451,6 +451,8 @@ const tableFolder = folder(); tableFolder.position.set(11.3, .99, .7); tableFold
 
 // The wristband, assembled in five visible stages.
 const assembly = grp(scene, TABLE.x, TABLE.y, TABLE.z); assembly.scale.setScalar(.42);
+// The old wristband study is retained but not presented as the rover prototype.
+assembly.visible = false;
 const pieces = [];
 function part(y, build) { const g = grp(assembly); g.userData.y = y; build(g); pieces.push(g); return g; }
 const partBuilds = [
@@ -479,7 +481,7 @@ const props = {
   crate: (() => { const m = new T.Mesh(G.box, lam({ map: crateTex })); m.scale.setScalar(.4); m.position.y = .05; return m; })()
 };
 props.folder.rotation.x = -.35;
-const kitParts = partBuilds.map(b => { const g = new T.Group(); b(g); g.scale.setScalar(.22); return g; });
+const kitParts = partBuilds.map(b => { const g = new T.Group(); b(g); g.scale.setScalar(.22); g.visible = false; return g; });
 const held = new Map();
 function hold(c, key) {
   if (held.get(c) === key) return; held.set(c, key);
@@ -518,16 +520,16 @@ const tipPos = new T.Vector3();
 const phases = [
   { end: 10, title: 'Scouting the right components', detail: 'Milo pulls parts off the shelf while Ada frames the brief.' },
   { end: 18, title: 'Reading the evidence', detail: 'Bea checks datasheets, Ada maps the trade-offs, Pip collects findings.' },
-  { end: 26, title: 'Handing off to engineering', detail: 'Pip carries the checked specification down the path to the factory.' },
-  { end: 46, title: 'Assembling the wristband', detail: 'Kit fetches each part, Otto fits it. Five visible steps.' },
-  { end: LOOP, title: 'Inspection and review', detail: 'The scanner checks the build. Research became a real shape.' }
+  { end: 26, title: 'Handing off to engineering', detail: 'Illustrative handoff; catalog checks and evidence appear in the workbench below.' },
+  { end: 46, title: 'Exploring a digital draft', detail: 'Illustrative workshop animation. Inspect the actual Rover R1 in the workbench below.' },
+  { end: LOOP, title: 'Inspection and review', detail: 'Animation only, not validation. Review unresolved constraints before any physical work.' }
 ];
 const script = [
-  [0, 3.5, ada, 'Brief: a gesture wristband, under $100.'], [3.5, 7, milo, 'Grabbing BLE controllers off the shelf…'], [7, 10, bea, 'Opening the sensor datasheets.'],
-  [10, 14, pip, 'Collecting everyone’s findings!'], [14, 18, ada, 'Shortlist locked. Evidence attached.'],
+  [0, 3.5, ada, 'Brief: Rover R1, one motor choice under $30.'], [3.5, 7, milo, 'Compare catalog options in the workbench below.'], [7, 10, bea, 'Opening the sensor datasheets.'],
+  [10, 14, pip, 'Collecting everyone’s findings!'], [14, 18, ada, 'Catalog facts and unknowns must remain separate.'],
   [18, 22, pip, 'Running the brief over to engineering…'], [22, 26, otto, 'Brief received. Firing up the line!'],
-  [26, 30, otto, 'First, the enclosure.'], [30, 34, kit, 'Controller board, coming through.'], [34, 38, otto, 'Seating the gesture sensor.'],
-  [38, 42, kit, 'Strap’s on. Fits nicely.'], [42, 46, otto, 'Closing the protective cover.'], [46, 50, kit, 'Scanning… all checks pass.'], [50, 54, pip, 'From research to a real shape!']
+  [26, 30, otto, 'First, the enclosure.'], [30, 34, kit, 'Controller board, coming through.'], [34, 38, otto, 'Consider nominal voltage and driver limits.'],
+  [38, 42, kit, 'Mounting and shaft fit remain unknown.'], [42, 46, otto, 'Closing the protective cover.'], [46, 50, kit, 'Preview only. Physical checks remain unresolved.'], [50, 54, pip, 'Explain the choice. Inspect the digital draft below.']
 ];
 const activity = { idle: 'Taking a breather.', type: 'Typing up findings.', walk: 'On the move.', carry: 'Carrying something important.', read: 'Reading a datasheet.', write: 'Mapping trade-offs on the whiteboard.', reach: 'Handing over notes.', place: 'Placing a part.', hammer: 'Tapping a part into place.', screw: 'Fastening screws.', sort: 'Sorting components.', file: 'Pulling source files.', inspect: 'Inspecting the work.', wave: 'Saying hello!', cheer: 'Celebrating!' };
 
@@ -615,7 +617,7 @@ function updateWorld(t, dt) {
   assembly.position.y = TABLE.y + (t >= 50 ? .15 + Math.sin(t * 3) * .03 : 0);
   tableFolder.visible = t >= 26.2;
   const built = pieces.filter(p => p.visible).length; drawStatus(t >= 50 ? 5 : Math.min(built, 4) + (t >= 46 ? 1 : 0), t);
-  statusLamp.material = t >= 50 ? statusOk : statusWait;
+  statusLamp.material = statusWait;
   gantry.visible = t >= 46 && t < 50.5; gantry.position.x = -.5 + Math.sin((t - 46) * 1.7) * 1.3;
   if (t >= 50 && t < 51.2 && Math.floor(t * 20) % 2) emit(v3.set(TABLE.x, TABLE.y + .4, TABLE.z), 8, [0xe85a5a, 0xf0c050, 0x6ac0a0, 0x8a9ae8, 0xf0f0e8], 4, 4.5);
   // welding robot
@@ -623,7 +625,7 @@ function updateWorld(t, dt) {
   if (running && Math.sin(t * 2.6) > .2 && rnd() < .6) { r.tip.getWorldPosition(tipPos); tipPos.y += .15; emit(tipPos, 2, [0xffd070, 0xffa040, 0xffffff], 2, 1.4); }
   stepParticles(dt);
 }
-const statusWait = glow(0xd8a040, 1.6), statusOk = glow(0x6ae0a0, 2);
+const statusWait = glow(0xd8a040, 1.6);
 
 /* ---------------------------------------------------------------- camera + input */
 let yaw = .42, pitch = .62, zoom = 1, camMode = 'auto';
