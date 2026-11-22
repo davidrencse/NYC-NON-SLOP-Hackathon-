@@ -21,8 +21,13 @@ try {
   for (let i = 0; i < 100; i++) { try { await call('demo'); ready = true; break } catch { await new Promise(r => setTimeout(r, 200)) } }
   assert.ok(ready, 'Vite not ready')
   const flow = performance.now()
-  const demo = await call('demo')
-  const s = await call('analyze', { ...demo.request, component_id: 'm2', mode: 'rehearsal' })
+  for (const asset of ['index.html', 'app.js', 'decision.js', 'vendor/three.module.js']) {
+    const response = await fetch(`${base}/voxel-demo/${asset}`)
+    assert.equal(response.status, 200, asset)
+    assert.ok((await response.text()).length > 100)
+  }
+  const s = await call('analyze', { description: 'Prototype Rover R1: compare one motor under $30', decision_kind: 'prototype_change', component_id: 'm2', mode: 'rehearsal' })
+  assert.match(s.analysis.unresolved[0], /no failed component/)
   assert.equal(s.analysis.status, 'no_solution')
   assert.match(s.agent.explanation, /SCRIPTED/)
   assert.equal(s.analysis.candidates[0].cost.total, null)

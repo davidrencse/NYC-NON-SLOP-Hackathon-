@@ -54,3 +54,16 @@ test('zero budget does not turn missing evidence into success', () => {
   const a = analyze({ description: 'rover motor', budget: 0 })
   assert.ok(a.candidates.every(c => c.within_known_budget === false && !c.eligible))
 })
+
+
+test('prototype intent preserves original ratings, evidence and unresolved gates', () => {
+  const a = analyze({ description: 'Rover prototype under $30', component_id: 'm2', decision_kind: 'prototype_change' })
+  const legacy = analyze({ description: 'Rover repair under $30', component_id: 'm2' })
+  assert.deepEqual(a.system, legacy.system)
+  assert.equal(a.status, 'no_solution')
+  assert.ok(a.unresolved[0].includes('no failed component'))
+  assert.deepEqual(a.unresolved.slice(1), legacy.unresolved.slice(1))
+  assert.deepEqual(a.candidates.map(c => c.specs), legacy.candidates.map(c => c.specs))
+  assert.ok(a.candidates.every(c => !c.eligible && c.explanation.hypothesis.includes('digital draft')))
+  assert.throws(() => analyze({ description: 'Rover under $30', decision_kind: 'physical_approval' }))
+})

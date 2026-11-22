@@ -11,6 +11,9 @@ const warnings = [
   'Mounting, shaft, stall current, installation and physical safety require independent verification.',
 ]
 export function analyze(input: Record<string, unknown>, system = structuredClone(defaultSystem)) {
+  if (input.decision_kind !== undefined && input.decision_kind !== 'prototype_change') throw new Error('Unsupported decision_kind')
+  const prototype = input.decision_kind === 'prototype_change'
+  const unresolved = prototype ? ['Prototype comparison only; no failed component or repair diagnosis is inferred.', ...warnings.slice(1)] : warnings
   if (typeof input.description !== 'string' || !input.description.trim() || input.description.length > 4000) throw new Error('description required (1–4000 characters)')
   if (!/rover/i.test(input.description)) throw new Error('Only the supported Rover R1 template is available')
   if (input.budget === undefined && (input.description.match(/\$\s*\d/g)?.length ?? 0) !== 1) throw new Error('Provide one unambiguous USD budget')
@@ -33,12 +36,12 @@ export function analyze(input: Record<string, unknown>, system = structuredClone
       known_cost: price, currency: 'USD', price_kind: 'catalog_not_live_quote', within_known_budget: price === null ? null : exclusive ? price * Number(quantity) < budget : price * Number(quantity) <= budget,
       cost: { unit: price, quantity, known_subtotal: price === null ? null : price * Number(quantity), total: null, currency: 'USD', total_within_budget: null }, preview_eligible: true,
       unknown_costs: ['shipping', 'tax', 'labor'], eligible: false,
-      explanation: { hypothesis: 'Replacement may help only if motor failure is independently confirmed', priorities: ['budget', ...(preserve ? ['preserve appearance'] : [])], reasons: a.reasons.map(r => r.startsWith('Runs on') ? `Nominal rail in catalog range only; PWM/driver conditions unknown` : r), rejected: [...a.warnings, ...(electrical ? [] : [`${device.rail} V rail exceeds supported voltage range`])], alternative_preferable: 'Same part preserves nominal geometry; other motors may require mounts and drivetrain changes' },
-      evidence: [{ kind: 'curated_catalog', source: 'src/data/catalog/peripherals.ts', component_id: a.item.id }], unresolved: warnings }
+      explanation: { hypothesis: prototype ? 'Explore a component change in the original rover digital draft; physical suitability remains unknown' : 'Replacement may help only if motor failure is independently confirmed', priorities: ['budget', ...(preserve ? ['preserve appearance'] : [])], reasons: a.reasons.map(r => r.startsWith('Runs on') ? `Nominal rail in catalog range only; PWM/driver conditions unknown` : r), rejected: [...a.warnings, ...(electrical ? [] : [`${device.rail} V rail exceeds supported voltage range`])], alternative_preferable: 'Same part preserves nominal geometry; other motors may require mounts and drivetrain changes' },
+      evidence: [{ kind: 'curated_catalog', source: 'src/data/catalog/peripherals.ts', component_id: a.item.id }], unresolved }
   })
   return { goals: { description: input.description, budget, currency: 'USD', preserve_appearance: preserve, budget_exclusive: exclusive, quantity }, component_id: device.id,
     component_selection: input.component_id ? 'user_selected' : 'm1 hypothesis; ask which motor', target_confirmed: Boolean(input.component_id), system, candidates,
-    status: 'no_solution', recommendation: null, verification: 'unverified', unresolved: warnings,
+    status: 'no_solution', recommendation: null, verification: 'unverified', unresolved,
     progress: ['template_loaded', 'catalog_checked', 'no_supported_verified_solution'], mode: 'deterministic', agent: null }
 }
 export type Analysis = ReturnType<typeof analyze>

@@ -1,8 +1,15 @@
-# FORGE · Autonomous AI Hardware Engineering
+# FORGE · Explainable engineering prototypes
 
-FORGE is an autonomous hardware engineering platform where a swarm of Gemini agents transforms natural-language ideas into editable 3D prototypes, selecting compatible components, designing circuits, generating firmware, and validating the results through simulation.
+FORGE helps engineers turn a brief into an inspectable, editable prototype. Generation is cheap; deliberate choices, evidence, constraints and tradeoffs matter.
 
-**Hackathon MVP in development.** The prompt studio runs Gemini research and generates an editable 3D preview for the supported wristband assembly. Firmware verification is planned.
+**Current demo: one Rover R1 motor decision.** The voxel workshop leads into the original 3D rover editor: compare catalog options, inspect cost and unknowns, apply an explicitly unverified digital draft, then undo. No physical or fabrication approval is claimed.
+
+```bash
+uv run --locked --python 3.12 python -m forge_research.studio
+# another terminal
+cd pcb-studio && npm install --package-lock=false && npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+```
+Open **http://127.0.0.1:5173/voxel-demo/**. Full original tools remain at `http://127.0.0.1:5173/?mode=engineer`. See [engineering handoff](docs/FORGE_ENGINEERING_HANDOFF.md) for the tested flow and limits. Consumer repair/taste documents describe historical positioning; their compatible APIs remain available.
 
 ## Open the prompt studio
 
