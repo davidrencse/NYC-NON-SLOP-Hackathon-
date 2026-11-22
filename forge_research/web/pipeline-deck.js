@@ -1,8 +1,10 @@
-// Research run as four phases: Input -> Researching -> Parsing -> Generation.
-// The phase rail sits under the bar; live work opens as windows on the desk
-// over the graph: one browser per swarm agent, one per source document being
-// parsed (Pangram + Reducto), one per compute worker (Modal VM or local
-// fallback) and a 3D model viewer. Everything shown comes from stream events.
+// The research run as one live flowchart.
+//
+// Four columns, left to right: Your brief -> Research -> Datasheets -> Build.
+// Every unit of work (an agent, a datasheet, a compute worker) is one node;
+// wires show what feeds what. Nodes stay short (name + one status line); the
+// full story for the selected node is in the inspector on the right. The
+// inspector follows whatever is running until the user picks a node.
 import {
   Box3,
   Color,
@@ -15,15 +17,24 @@ import {
   Vector3,
   WebGLRenderer,
 } from "./vendor/three-runtime.js";
+import { createCrew } from "./crew.js";
 
-const PHASES = [
-  { id: "input", label: "User input", items: [["brief", "Brief"], ["mode", "Run mode"]] },
-  { id: "research", label: "Researching", items: [["swarm", "Agent swarm"], ["catalog", "Catalog + review"]] },
-  { id: "parsing", label: "Parsing", items: [["pangram", "Pangram scan"], ["reducto", "Reducto parse"], ["crosscheck", "Evidence check"]] },
-  { id: "generation", label: "Generation", items: [["assembly", "Assembly"], ["cloud", "Modal VM"], ["export", "Export + verify"]] },
+const COLUMNS = [
+  { id: "input", label: "Your brief" },
+  { id: "research", label: "Research" },
+  { id: "parsing", label: "Datasheets" },
+  { id: "generation", label: "Build" },
 ];
-const RESEARCH_STAGES = new Set(["requirements", "sourcing", "controller", "sensor", "compatibility", "reviewer"]);
-const DONE = new Set(["completed", "failed", "skipped", "cancelled", "accepted", "excluded", "error", "unverified"]);
+const CATALOG_STEPS = [
+  ["requirements", "Read requirements"],
+  ["sourcing", "Pick parts from the catalog"],
+  ["compatibility", "Check electrical fit"],
+  ["reviewer", "Review the design"],
+];
+// Build column reads top to bottom in the order work happens.
+const RANK = { assembly: 1, "modal-enclosure": 2, "local-enclosure": 3, export: 4, model: 5, evidence: 9 };
+const DONE = new Set(["completed", "failed", "skipped", "cancelled"]);
+const STATUS_TEXT = { pending: "Waiting", running: "Working", completed: "Done", failed: "Failed", skipped: "Skipped", cancelled: "Handed off" };
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const $ = id => document.getElementById(id);
@@ -36,416 +47,503 @@ function h(tag, cls, text) {
 const pct = x => (x == null ? "—" : Math.round(x * 100) + "%");
 const secs = s => (s == null ? "—" : s < 10 ? s.toFixed(1) + " s" : Math.round(s) + " s");
 const kb = n => (n == null ? "—" : n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.round(n / 1e3) + " kB");
+const clip = (text, n) => (text && text.length > n ? text.slice(0, n - 1) + "…" : text || "");
 
 let state = null;
 let tick = 0;
 
-function fresh(mode, brief) {
-  const items = {};
-  for (const phase of PHASES) for (const [id] of phase.items) items[id] = { status: "pending", note: "" };
-  return { mode, brief, started: performance.now(), phases: {}, items, windows: new Map(), order: 0, docs: 0, models: [], viewer: null };
+// ---------- graph model ----------
+function node(key, col, title, opts = {}) {
+  let n = state.nodes.get(key);
+  if (!n) {
+    n = { key, col, title, status: "pending", note: "", from: [], data: {}, group: null, order: state.nodes.size, ...opts };
+    state.nodes.set(key, n);
+    state.dirty = true;
+  }
+  return n;
 }
 
-// ---------- phase rail ----------
-function phaseStatus(phase) {
-  const list = phase.items.map(([id]) => state.items[id].status);
+function link(from, to, dashed = false) {
+  const n = state.nodes.get(to);
+  if (n && !n.from.some(f => f.key === from)) {
+    n.from.push({ key: from, dashed });
+    state.dirty = true;
+  }
+}
+
+function update(key, patch) {
+  const n = state.nodes.get(key);
+  if (!n) return;
+  // A finished step never goes back to working (skipped may resume).
+  if (patch.status && DONE.has(n.status) && n.status !== "skipped" && !DONE.has(patch.status)) delete patch.status;
+  const data = patch.data;
+  delete patch.data;
+  Object.assign(n, patch);
+  if (data) n.data = { ...n.data, ...data };
+  if (patch.status === "running") follow(key);
+  schedule();
+}
+
+function remove(key) {
+  if (state.nodes.delete(key)) {
+    for (const n of state.nodes.values()) n.from = n.from.filter(f => f.key !== key);
+    state.dirty = true;
+  }
+}
+
+// ---------- rendering ----------
+let frame = 0;
+function schedule() {
+  if (!frame) frame = requestAnimationFrame(() => {
+    frame = 0;
+    render();
+  });
+}
+
+function glyph(status) {
+  const g = h("span", "pd-glyph");
+  g.dataset.status = status;
+  g.setAttribute("aria-hidden", "true");
+  return g;
+}
+
+function columnStatus(col) {
+  const list = [...state.nodes.values()].filter(n => n.col === col).map(n => n.status);
+  if (!list.length) return "pending";
   if (list.some(s => s === "running")) return "running";
-  if (list.every(s => DONE.has(s))) {
-    if (list.some(s => s === "failed")) return "failed";
-    return list.every(s => s === "skipped") ? "skipped" : "completed";
-  }
-  if (list.some(s => DONE.has(s))) return "running";
-  return "pending";
+  if (list.every(s => DONE.has(s))) return list.some(s => s === "failed") ? "failed" : list.every(s => s === "skipped") ? "skipped" : "completed";
+  return list.some(s => s !== "pending") ? "running" : "pending";
 }
 
-function renderRail() {
-  const rail = $("pd-rail");
-  if (!rail || !state) return;
-  rail.replaceChildren(...PHASES.map((phase, i) => {
-    const status = phaseStatus(phase);
-    const col = h("li", "pd-phase");
-    col.dataset.status = status;
-    const head = h("div", "pd-phase-head");
-    head.append(h("span", "pd-num", String(i + 1).padStart(2, "0")), h("strong", null, phase.label), h("span", "pd-state", status));
-    const list = h("ul", "pd-items");
-    for (const [id, label] of phase.items) {
-      const item = state.items[id];
-      const row = h("li", "pd-item");
-      row.dataset.status = item.status;
-      row.append(h("span", "pd-dot"), h("span", "pd-item-label", label), h("span", "pd-item-note", item.note || item.status));
-      list.append(row);
+function render() {
+  if (!state) return;
+  const flow = $("pd-flow");
+  if (state.dirty) {
+    state.dirty = false;
+    flow.replaceChildren(...COLUMNS.map(col => {
+      const section = h("section", "pd-col");
+      section.dataset.col = col.id;
+      const head = h("header", "pd-col-head");
+      head.append(glyph("pending"), h("h4", null, col.label));
+      const body = h("div", "pd-col-body");
+      let groupBox = null;
+      for (const n of [...state.nodes.values()].filter(x => x.col === col.id).sort((a, b) => (RANK[a.key] ?? 0) - (RANK[b.key] ?? 0) || a.order - b.order)) {
+        if (n.group) {
+          if (!groupBox || groupBox.dataset.group !== n.group) {
+            groupBox = h("div", "pd-group");
+            groupBox.dataset.group = n.group;
+            groupBox.append(h("p", "pd-group-label", n.group));
+            body.append(groupBox);
+          }
+        } else groupBox = null;
+        n.el = nodeButton(n);
+        (n.group ? groupBox : body).append(n.el);
+      }
+      section.append(head, body);
+      return section;
+    }));
+  }
+  for (const n of state.nodes.values()) paintNode(n);
+  for (const section of flow.children) section.querySelector(".pd-glyph").dataset.status = columnStatus(section.dataset.col);
+  const running = COLUMNS.find(c => columnStatus(c.id) === "running");
+  $("pd-current").textContent = running ? running.label : state.finished ? "Finished" : "Starting";
+  wires();
+  renderInspector();
+}
+
+function nodeButton(n) {
+  const btn = h("button", "pd-node");
+  btn.type = "button";
+  btn.dataset.key = n.key;
+  btn.append(glyph(n.status), h("span", "pd-node-title", n.title), h("span", "pd-node-note"));
+  btn.addEventListener("click", () => select(n.key, true));
+  return btn;
+}
+
+function paintNode(n) {
+  if (!n.el) return;
+  n.el.dataset.status = n.status;
+  n.el.dataset.kind = n.kind || "";
+  n.el.setAttribute("aria-pressed", String(state.selected === n.key));
+  n.el.querySelector(".pd-glyph").dataset.status = n.status;
+  n.el.querySelector(".pd-node-note").textContent = n.note || STATUS_TEXT[n.status] || n.status;
+  n.el.setAttribute("aria-label", `${n.title}: ${n.note || STATUS_TEXT[n.status]}`);
+}
+
+function wires() {
+  const svg = $("pd-wires");
+  const box = $("pd-canvas").getBoundingClientRect();
+  const paths = [];
+  for (const n of state.nodes.values()) {
+    if (!n.el) continue;
+    const b = n.el.getBoundingClientRect();
+    for (const f of n.from) {
+      const src = state.nodes.get(f.key);
+      if (!src?.el) continue;
+      const a = src.el.getBoundingClientRect();
+      let d;
+      if (src.col === n.col) {
+        // Loop down the left edge inside one column.
+        const x = Math.min(a.left, b.left) - box.left;
+        const y1 = a.top + a.height / 2 - box.top;
+        const y2 = b.top + b.height / 2 - box.top;
+        d = `M${x} ${y1} C${x - 16} ${y1}, ${x - 16} ${y2}, ${x} ${y2}`;
+      } else {
+        const x1 = a.right - box.left;
+        const y1 = a.top + a.height / 2 - box.top;
+        const x2 = b.left - box.left;
+        const y2 = b.top + b.height / 2 - box.top;
+        const mid = (x1 + x2) / 2;
+        d = `M${x1} ${y1} C${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
+      }
+      const live = n.status === "running" && (DONE.has(src.status) || src.status === "running");
+      const done = DONE.has(src.status) && n.status !== "pending";
+      const focus = state.selected === n.key || state.selected === src.key;
+      const cls = ["pd-wire", f.dashed && "is-dashed", live ? "is-live" : done && "is-done", focus && "is-focus"].filter(Boolean).join(" ");
+      paths.push(`<path class="${cls}" d="${d}"/>`);
     }
-    col.append(head, list);
-    return col;
-  }));
-  const running = PHASES.find(p => phaseStatus(p) === "running");
-  $("pd-current").textContent = running ? running.label : PHASES.every(p => DONE.has(phaseStatus(p))) ? "Done" : "Queued";
-}
-
-function setItem(id, status, note) {
-  const item = state.items[id];
-  // A finished item only moves on to another finished state (e.g. a later failure).
-  if ((item.status === "completed" || item.status === "failed") && !DONE.has(status)) return;
-  item.status = status;
-  if (note != null) item.note = note;
-  renderRail();
-}
-
-// ---------- desk windows ----------
-function desk() {
-  return $("pd-desk");
-}
-
-function layout() {
-  const area = desk();
-  if (!area || !state) return;
-  const W = area.clientWidth;
-  const H = area.clientHeight;
-  const open = [...state.windows.values()].filter(w => !w.minimized && !w.dragged);
-  const cols = Math.max(1, Math.min(4, Math.floor(W / 300)));
-  const width = Math.min(380, (W - 16 * (cols + 1)) / cols);
-  open.forEach((win, i) => {
-    const big = win.kind === "model";
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const height = big ? Math.min(360, H - 60) : 224;
-    win.node.style.width = (big ? Math.min(W - 32, width * 2 + 16) : width) + "px";
-    win.node.style.height = height + "px";
-    const left = big ? W - Math.min(W - 32, width * 2 + 16) - 16 : 16 + col * (width + 16);
-    const top = big ? 16 : 16 + row * 238 + (i % 2) * 8;
-    win.node.style.transform = `translate(${Math.max(8, left)}px, ${Math.min(Math.max(8, top), Math.max(8, H - height - 48))}px)`;
-  });
-  renderDock();
-}
-
-function renderDock() {
-  const dock = $("pd-dock");
-  if (!dock) return;
-  const mins = [...state.windows.values()].filter(w => w.minimized);
-  dock.hidden = mins.length === 0;
-  dock.replaceChildren(...mins.map(win => {
-    const chip = h("button", "pd-chip", win.title);
-    chip.type = "button";
-    chip.dataset.status = win.status;
-    chip.addEventListener("click", () => setMinimized(win, false));
-    return chip;
-  }));
-}
-
-function setMinimized(win, minimized) {
-  win.minimized = minimized;
-  win.node.hidden = minimized;
-  if (!minimized) {
-    win.dragged = false;
-    desk().append(win.node); // bring to front
   }
-  layout();
+  svg.setAttribute("viewBox", `0 0 ${box.width} ${box.height}`);
+  svg.innerHTML = paths.join("");
 }
 
-function minimizeKind(kinds) {
-  // Only tuck away finished windows; anything still streaming stays on the desk.
-  for (const win of state.windows.values()) if (kinds.includes(win.kind) && !win.minimized && win.status !== "running" && win.status !== "pending") {
-    win.minimized = true;
-    win.node.hidden = true;
+// ---------- inspector ----------
+function follow(key) {
+  if (!state.pinned) state.selected = key;
+}
+
+function select(key, byUser) {
+  if (byUser) state.pinned = true;
+  state.selected = key;
+  $("pd-follow").hidden = !state.pinned;
+  schedule();
+}
+
+function renderInspector() {
+  const n = state.nodes.get(state.selected);
+  const panel = $("pd-inspect");
+  if (state.inspected === n && n?.kind === "model" && panel.contains(state.viewerHost)) {
+    panel.querySelector(".pd-aside").textContent = state.modelInfo || "Loading…";
+    panel.querySelector(".pd-in-state").textContent = STATUS_TEXT[n.status];
+    panel.querySelector(".pd-in-head .pd-glyph").dataset.status = n.status;
+    return; // keep the live WebGL canvas in place
   }
-  layout();
-}
-
-function drag(win, handle) {
-  handle.addEventListener("pointerdown", event => {
-    if (event.target.closest("button")) return;
-    const match = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(win.node.style.transform) || [0, 0, 0];
-    const start = { x: event.clientX, y: event.clientY, left: +match[1], top: +match[2] };
-    handle.setPointerCapture(event.pointerId);
-    desk().append(win.node);
-    const move = e => {
-      win.dragged = true;
-      win.node.style.transform = `translate(${start.left + e.clientX - start.x}px, ${start.top + e.clientY - start.y}px)`;
-    };
-    const up = () => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", up);
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", up);
-  });
-}
-
-function openWindow(key, kind, title, url) {
-  let win = state.windows.get(key);
-  if (win) return win;
-  const node = h("article", "pd-win");
-  node.dataset.kind = kind;
-  node.dataset.status = "running";
-  node.style.setProperty("--delay", (state.order++ % 6) * 70 + "ms");
-  const bar = h("header", "pd-win-bar");
-  const lights = h("span", "pd-lights");
-  lights.append(h("i"), h("i"), h("i"));
-  const name = h("span", "pd-win-title", title);
-  const min = h("button", "pd-win-min", "–");
-  min.type = "button";
-  min.setAttribute("aria-label", "Minimize " + title);
-  bar.append(lights, name, min);
-  const address = h("div", "pd-url");
-  address.append(h("span", "pd-lock", kind === "vm" ? "vm" : kind === "doc" ? "pdf" : "tls"), h("span", "pd-url-text", url));
-  const load = h("div", "pd-load");
-  const body = h("div", "pd-win-body");
-  const foot = h("footer", "pd-win-foot");
-  node.append(bar, address, load, body, foot);
-  win = { key, kind, title, node, body, foot, url: address.lastChild, status: "running", minimized: false, dragged: false };
-  min.addEventListener("click", () => setMinimized(win, true));
-  drag(win, bar);
-  state.windows.set(key, win);
-  desk().append(node);
-  layout();
-  return win;
-}
-
-function setWinStatus(win, status) {
-  win.status = status;
-  win.node.dataset.status = status;
-  renderDock();
-}
-
-// ---------- researching: agent browsers ----------
-function agentWindow(index, agent) {
-  const win = openWindow("agent-" + index, "agent", agent.name || agent.role, `forge://swarm/${agent.role}${state.swarmModel ? "?model=" + state.swarmModel : ""}`);
-  if (!win.focus) {
-    win.focus = h("p", "pd-focus", agent.focus || "");
-    win.stream = h("pre", "pd-stream", "Waiting for dispatch…");
-    win.body.append(win.focus, win.stream);
+  state.inspected = n;
+  if (!n) {
+    panel.replaceChildren(h("p", "pd-empty", "Pick a step in the flowchart to see what it did."));
+    return;
   }
-  return win;
+  const head = h("header", "pd-in-head");
+  head.append(glyph(n.status), h("h4", null, n.title), h("span", "pd-in-state", STATUS_TEXT[n.status] || n.status));
+  const body = h("div", "pd-in-body");
+  (DETAIL[n.kind] || DETAIL.plain)(n, body);
+  panel.replaceChildren(head, body);
 }
 
-function onSwarm(event) {
-  if (event.event === "start") {
-    state.swarmModel = event.model;
-    state.agents = (event.agents ?? []).map(a => ({ role: a.id, name: a.name, focus: a.focus }));
-    setItem("swarm", "running", `${state.agents.length} agents · ${event.engine === "gemini" ? event.model : "offline replay"}`);
-    state.agents.forEach((agent, i) => {
-      const win = agentWindow(i, agent);
-      setWinStatus(win, "pending");
-      win.foot.textContent = "queued";
-    });
-  } else if (event.event === "agent") {
-    const agent = state.agents?.[event.index] ?? { role: event.role, name: event.role };
-    const win = agentWindow(event.index, agent);
-    const result = event.result;
-    setWinStatus(win, event.status);
-    if (event.status === "running") {
-      win.stream.textContent = event.text ? "…" + event.text : "Reasoning…";
-      win.stream.dataset.live = "true";
-      win.foot.textContent = "streaming";
-    } else {
-      win.stream.dataset.live = "false";
-      win.stream.textContent = result?.summary || result?.text || event.text || "No brief returned.";
-      const tokens = (result?.input_tokens ?? 0) + (result?.output_tokens ?? 0);
-      win.foot.textContent = [event.status, secs(result?.duration_s), tokens ? tokens.toLocaleString() + " tok" : null].filter(Boolean).join(" · ");
-    }
-    const done = [...state.windows.values()].filter(w => w.kind === "agent" && DONE.has(w.status)).length;
-    setItem("swarm", "running", `${done}/${state.agents?.length ?? 4} agents done`);
-  } else if (event.event === "synthesis") {
-    const lead = openWindow("lead", "agent", "Lead engineer · synthesis", "forge://swarm/lead");
-    if (!lead.stream) {
-      lead.stream = h("pre", "pd-stream", "Merging specialist briefs…");
-      lead.body.append(lead.stream);
-    }
-    setWinStatus(lead, event.status);
-    if (event.text) lead.stream.textContent = event.text;
-    lead.foot.textContent = event.status;
-  } else if (event.event === "complete") {
-    const report = event.report ?? {};
-    setItem("swarm", report.status === "failed" ? "failed" : "completed", `${report.agents?.length ?? 0} briefs merged`);
-    if (state.items.assembly.status !== "pending") minimizeKind(["agent", "doc"]);
-  }
+function field(list, label, value) {
+  list.append(h("dt", null, label), h("dd", null, value == null || value === "" ? "—" : String(value)));
 }
 
-// ---------- parsing: document windows ----------
-function meter(label, value, cls) {
-  const row = h("div", "pd-meter " + (cls || ""));
+function meter(label, value) {
+  const row = h("div", "pd-meter");
   const bar = h("span", "pd-meter-bar");
   const fill = h("i");
   fill.style.width = value == null ? "0%" : Math.round(value * 100) + "%";
   bar.append(fill);
-  row.append(h("span", "pd-meter-k", label), bar, h("b", null, pct(value)));
+  row.append(h("span", null, label), bar, h("b", null, pct(value)));
   return row;
 }
 
-function docWindow(doc, partId) {
-  const key = "doc-" + (doc.url || doc.title);
-  const fresh = !state.windows.has(key);
-  const win = openWindow(key, "doc", doc.title || "Datasheet", doc.url || "");
-  if (fresh) {
-    state.docs++;
-    win.body.append(h("p", "pd-focus", partId ? "Part · " + partId : "Source document"));
-    win.scan = h("div", "pd-scan");
-    win.scan.append(h("span", null, "Pangram authorship scan"), h("span", null, "Reducto table + figure parse"));
-    win.body.append(win.scan);
-    win.foot.textContent = "reading";
+const DETAIL = {
+  plain(n, body) {
+    body.append(h("p", "pd-prose", n.data.text || n.note || STATUS_TEXT[n.status]));
+  },
+  brief(n, body) {
+    body.append(h("p", "pd-prose pd-quote", state.brief || "The sample wristband brief."));
+    const dl = h("dl", "pd-facts");
+    field(dl, "Run", state.mode === "sample" ? "Offline sample, no API calls" : "Live");
+    body.append(dl);
+  },
+  agent(n, body) {
+    if (n.data.focus) body.append(h("p", "pd-lede", n.data.focus));
+    const text = n.data.summary || n.data.text;
+    const out = h("pre", "pd-prose pd-stream", text || (n.status === "pending" ? "Waiting to start." : "Thinking…"));
+    if (n.status === "running") out.dataset.live = "true";
+    body.append(out);
+    const dl = h("dl", "pd-facts");
+    field(dl, "Model", state.swarmModel || "Offline replay");
+    if (n.data.duration_s != null) field(dl, "Time", secs(n.data.duration_s));
+    if (n.data.tokens) field(dl, "Tokens", n.data.tokens.toLocaleString());
+    body.append(dl, h("p", "pd-aside", "Advice only. Catalog checks and Lean proofs decide what is accepted."));
+  },
+  catalog(n, body) {
+    const steps = h("ol", "pd-steps");
+    for (const [id, label] of CATALOG_STEPS) {
+      const s = n.data.steps?.[id] || "pending";
+      const li = h("li");
+      li.append(glyph(s), h("span", null, label), h("span", "pd-step-state", STATUS_TEXT[s] || s));
+      steps.append(li);
+    }
+    body.append(steps);
+    for (const lookup of n.data.lookups || []) {
+      body.append(h("p", "pd-sub", `Candidates for the ${lookup.role}`));
+      const ul = h("ul", "pd-list");
+      for (const p of lookup.parts) ul.append(h("li", null, p.name || p.id));
+      body.append(ul);
+    }
+    if (n.data.rationale) body.append(h("p", "pd-sub", "Why these parts"), h("p", "pd-prose", n.data.rationale));
+  },
+  doc(n, body) {
+    const d = n.data;
+    if (d.url) {
+      const a = h("a", "pd-link", d.url.replace(/^https?:\/\//, ""));
+      a.href = d.url;
+      a.target = "_blank";
+      a.rel = "noreferrer";
+      body.append(a);
+    }
+    if (!d.decision) {
+      body.append(h("p", "pd-prose", "Pangram is checking who wrote it. Reducto is pulling out tables and figures."));
+      return;
+    }
+    body.append(h("p", "pd-sub", "Pangram authorship"), meter("AI-generated", d.ai), meter("AI-assisted", d.assist));
+    const dl = h("dl", "pd-facts");
+    field(dl, "Reducto", d.parsed ? `${d.facts ?? 0} facts extracted` : "Not parsed");
+    field(dl, "Scans", d.scans);
+    field(dl, "Decision", d.decision === "accepted" ? "Used as evidence" : d.decision === "excluded" ? "Left out" : d.decision);
+    body.append(dl);
+    if (d.reason) body.append(h("p", "pd-prose", d.reason));
+  },
+  vm(n, body) {
+    const d = n.data;
+    const res = d.resources || {};
+    const dl = h("dl", "pd-facts");
+    field(dl, "Where", d.cloud ? "Modal container" : "This machine");
+    field(dl, "Runs", d.function);
+    field(dl, "CPU", res.cpu != null ? res.cpu + " vCPU" : null);
+    field(dl, "Memory", res.memory_mb ? res.memory_mb / 1024 + " GiB" : "Shared with this machine");
+    field(dl, "GPU", res.gpu || "None, CAD runs on CPU");
+    if (res.timeout_s) field(dl, "Time limit", res.timeout_s + " s");
+    body.append(dl);
+    if (d.stats) {
+      const s = d.stats;
+      const out = h("dl", "pd-facts");
+      field(out, "Took", secs(s.elapsed_s));
+      if (s.triangles) field(out, "Triangles", s.triangles.toLocaleString());
+      field(out, "Parts", Array.isArray(s.nodes) ? s.nodes.length : s.nodes);
+      field(out, "GLB size", kb(s.bytes?.glb));
+      if ("cache_hit" in s) field(out, "Cache", s.cache_hit ? "Reused an earlier result" : "Built fresh");
+      body.append(h("p", "pd-sub", "Output"), out);
+    }
+    if (d.log?.length) {
+      const log = h("ol", "pd-log");
+      for (const line of d.log) log.append(h("li", null, line));
+      body.append(h("p", "pd-sub", "Log"), log);
+    }
+  },
+  export(n, body) {
+    const dl = h("dl", "pd-facts");
+    field(dl, "3D file", state.exported === "completed" ? "GLB ready" : STATUS_TEXT[state.exported] || "Waiting");
+    field(dl, "Lean proofs", state.leanText || "Waiting");
+    body.append(dl);
+  },
+  model(n, body) {
+    const tabs = h("div", "pd-tabs");
+    for (const m of state.models) {
+      const tab = h("button", "pd-tab", m.label);
+      tab.type = "button";
+      tab.setAttribute("aria-pressed", String(m === state.model));
+      tab.addEventListener("click", () => showModel(m));
+      tabs.append(tab);
+    }
+    ensureViewer();
+    body.append(tabs, state.viewerHost, h("p", "pd-aside", state.modelInfo || "Loading…"));
+  },
+};
+
+// ---------- event handlers ----------
+function onSwarm(event) {
+  if (event.event === "start") {
+    state.swarmModel = event.model;
+    (event.agents ?? []).forEach((a, i) => {
+      node("agent-" + i, "research", a.name, { kind: "agent", group: "Agent swarm" }).data.focus = a.focus;
+      link("brief", "agent-" + i);
+    });
+    node("lead", "research", "Lead engineer", { kind: "agent", group: "Agent swarm" }).data.focus = "Merges the specialist briefs into one plan.";
+    (event.agents ?? []).forEach((_, i) => link("agent-" + i, "lead"));
+    catalogNode();
+    schedule();
+  } else if (event.event === "agent") {
+    const key = "agent-" + event.index;
+    node(key, "research", event.role, { kind: "agent", group: "Agent swarm" });
+    const r = event.result;
+    const tokens = (r?.input_tokens ?? 0) + (r?.output_tokens ?? 0);
+    update(key, {
+      status: event.status,
+      note: event.status === "running" ? "Thinking" : [STATUS_TEXT[event.status], r?.duration_s ? secs(r.duration_s) : null].filter(Boolean).join(", "),
+      data: { text: event.text, summary: r?.summary, duration_s: r?.duration_s, tokens },
+    });
+  } else if (event.event === "synthesis") {
+    update("lead", { status: event.status, note: event.status === "running" ? "Merging briefs" : "Plan written", data: { text: event.text } });
+  } else if (event.event === "complete" && event.report?.status === "failed") {
+    update("lead", { status: "failed", note: "Swarm failed" });
   }
-  return win;
+}
+
+function catalogNode() {
+  node("catalog", "research", "Catalog review", { kind: "catalog" });
+  link("brief", "catalog");
+}
+
+function catalogStep(stage, status, data) {
+  catalogNode();
+  const n = state.nodes.get("catalog");
+  n.data.steps = { ...n.data.steps, [stage]: status };
+  if (stage === "sourcing" && data?.rationale) n.data.rationale = data.rationale;
+  const label = CATALOG_STEPS.find(s => s[0] === stage)?.[1];
+  const finished = stage === "reviewer" && DONE.has(status);
+  update("catalog", { status: finished ? status : status === "failed" ? "failed" : "running", note: finished ? "Parts chosen" : label });
+}
+
+function ensureEvidence() {
+  remove("parse-skip");
+  if (!state.nodes.has("evidence")) {
+    node("evidence", "parsing", "Cross-check facts", { kind: "plain" });
+    link("evidence", "assembly");
+  }
+}
+
+function docNode(doc, part) {
+  ensureEvidence();
+  const key = "doc-" + (doc.url || doc.title);
+  const n = node(key, "parsing", clip(doc.title || "Datasheet", 38), { kind: "doc", group: part ? "Part: " + part : "Sources" });
+  n.data.url = doc.url;
+  link("catalog", key);
+  link(key, "evidence");
+  return key;
 }
 
 function onSource(event) {
   if (event.event === "reading") {
-    setItem("pangram", "running", "scanning");
-    setItem("reducto", "running", "parsing");
-    const win = docWindow({ url: event.url, title: event.title }, event.part_id);
-    win.foot.textContent = `round ${event.round ?? 1} · reading`;
+    update(docNode({ url: event.url, title: event.title }, event.part_id), { status: "running", note: "Scanning and parsing" });
   } else if (event.event === "decision") {
-    const src = event.source ?? {};
-    const win = docWindow(src.document ?? {}, src.part_id);
-    const facts = Array.isArray(src.facts) ? src.facts.length : src.facts ?? null;
-    win.scan?.remove();
-    const result = h("div", "pd-doc");
-    result.append(
-      meter("AI-generated", src.ai_fraction, "is-ai"),
-      meter("AI-assisted", src.ai_assisted_fraction, "is-assist"),
-    );
-    const parsed = h("p", "pd-facts");
-    parsed.append(h("span", "pd-tag", "Reducto"), document.createTextNode(src.parsed ? `${facts ?? 0} facts extracted` : "not parsed"));
-    const verdict = h("p", "pd-verdict", src.decision);
-    verdict.dataset.decision = src.decision;
-    result.append(parsed, verdict);
-    if (src.reason) result.append(h("p", "pd-reason", src.reason));
-    win.body.append(result);
-    setWinStatus(win, src.decision === "accepted" ? "completed" : src.decision === "error" ? "failed" : "warning");
-    win.foot.textContent = `${src.decision} · ${src.scans ?? 0} scan${src.scans === 1 ? "" : "s"}`;
-    const docs = [...state.windows.values()].filter(w => w.kind === "doc");
-    const accepted = docs.filter(w => w.status === "completed").length;
-    setItem("pangram", "running", `${docs.length} docs scanned`);
-    setItem("reducto", "running", `${accepted} accepted`);
-  } else if (event.event === "retry") {
-    setItem("pangram", "running", "retry round " + (event.round ?? ""));
-  } else if (event.event === "complete") {
-    const audit = event.audit ?? {};
-    const status = audit.status === "accepted" ? "completed" : audit.status === "needs_review" ? "skipped" : "failed";
-    setItem("pangram", status, audit.status === "needs_review" ? "keys missing / review" : `${audit.sources?.length ?? state.docs} docs`);
-    setItem("reducto", status, `${audit.rounds ?? 1} round${audit.rounds === 1 ? "" : "s"}`);
+    const s = event.source ?? {};
+    const facts = Array.isArray(s.facts) ? s.facts.length : s.facts;
+    update(docNode(s.document ?? {}, s.part_id), {
+      status: s.decision === "accepted" ? "completed" : s.decision === "error" ? "failed" : "skipped",
+      note: s.decision === "accepted" ? `Used, ${facts ?? 0} facts` : s.decision === "excluded" ? "Left out" : s.decision,
+      data: { decision: s.decision, reason: s.reason, ai: s.ai_fraction, assist: s.ai_assisted_fraction, scans: s.scans, parsed: s.parsed, facts },
+    });
   }
-}
-
-// ---------- generation: compute VMs + model ----------
-function vmWindow(event) {
-  const cloud = event.provider === "modal";
-  const win = openWindow("vm-" + event.job, "vm", event.label || (cloud ? "Modal CAD worker" : "Local worker"), cloud ? `modal://forge-cad/${event.function || "generate_enclosure"}` : `local://${location.hostname}/${event.job}`);
-  if (!win.spec) {
-    const res = event.resources ?? {};
-    win.spec = h("dl", "pd-spec");
-    for (const [k, v] of [["CPU", res.cpu != null ? res.cpu + " vCPU" : "—"], ["Memory", res.memory_mb ? res.memory_mb / 1024 + " GiB" : "host"], ["GPU", res.gpu || "none (CPU CAD)"], ["Timeout", res.timeout_s ? res.timeout_s + " s" : "—"]]) {
-      win.spec.append(h("dt", null, k), h("dd", null, v));
-    }
-    win.log = h("ol", "pd-log");
-    win.clock = h("b", "pd-clock", "0.0 s");
-    win.t0 = performance.now();
-    win.body.append(win.spec, win.log);
-    win.foot.replaceChildren(win.clock);
-  }
-  return win;
 }
 
 function onCompute(event) {
   if (event.event === "ready") {
-    loadModel(event.glb_url, "Enclosure · " + event.provider);
+    addModel(event.glb_url, event.provider === "modal" ? "Enclosure (Modal)" : "Enclosure");
     return;
   }
+  if (event.job === "enclosure") return;
   const cloud = event.provider === "modal";
-  const item = event.job === "local-assembly" ? "assembly" : "cloud";
-  if (event.event === "skipped") {
-    setItem(item, "skipped", "not configured");
-    return;
+  const key = event.job === "local-assembly" ? "assembly" : event.job;
+  const title = key === "assembly" ? "Assemble parts" : cloud ? "Enclosure on Modal" : "Enclosure on this machine";
+  const n = node(key, "generation", title, { kind: "vm" });
+  n.data.cloud = cloud;
+  if (event.resources) n.data.resources = event.resources;
+  if (event.function) n.data.function = event.function;
+  if (event.detail) n.data.log = [...(n.data.log || []), event.detail];
+  if (key === "assembly") {
+    link(state.nodes.has("evidence") ? "evidence" : state.nodes.has("parse-skip") ? "parse-skip" : "catalog", "assembly");
+  } else if (event.job === "modal-enclosure") {
+    link("assembly", key);
+  } else if (event.job === "local-enclosure") {
+    const handoff = state.nodes.has("modal-enclosure");
+    link(handoff ? "modal-enclosure" : "assembly", key, handoff);
   }
-  const win = vmWindow(event);
-  win.log.append(h("li", null, event.detail || event.event));
   if (event.event === "provision" || event.event === "running") {
-    setWinStatus(win, "running");
-    setItem(item, "running", cloud ? "container " + event.event : event.event);
-    if (event.event === "provision") win.t0 = performance.now();
+    update(key, { status: "running", note: cloud ? "Starting container" : "Working" });
+  } else if (event.event === "skipped") {
+    update(key, { status: "skipped", note: "Not configured" });
+  } else if (event.event === "cancelled") {
+    update(key, { status: "cancelled", note: "Failed, handed to this machine" });
+  } else if (event.event === "completed") {
+    n.data.stats = event.stats;
+    update(key, { status: "completed", note: `Done in ${secs(event.stats?.elapsed_s)}` });
+    if (event.glb_url) addModel(event.glb_url, "Assembly");
   } else {
-    win.done = true;
-    const stats = event.stats ?? {};
-    win.clock.textContent = secs(stats.elapsed_s ?? (performance.now() - win.t0) / 1000);
-    setWinStatus(win, event.event === "completed" ? "completed" : event.event === "cancelled" ? "warning" : "failed");
-    if (event.event === "completed") {
-      const out = h("dl", "pd-spec pd-out");
-      for (const [k, v] of [["Elapsed", secs(stats.elapsed_s)], ["Triangles", stats.triangles?.toLocaleString() ?? "—"], ["Nodes", Array.isArray(stats.nodes) ? stats.nodes.length : stats.nodes ?? "—"], ["GLB", kb(stats.bytes?.glb)], ["Cache", stats.cache_hit ? "hit" : "miss"]]) {
-        out.append(h("dt", null, k), h("dd", null, String(v)));
-      }
-      win.body.append(out);
-      setItem(item, "completed", cloud ? `modal · ${secs(stats.elapsed_s)}` : `${event.job === "local-assembly" ? "assembly" : "local fallback"} · ${secs(stats.elapsed_s)}`);
-      if (event.glb_url) loadModel(event.glb_url, "Assembly");
-    } else if (event.event === "cancelled") {
-      setItem("cloud", "running", "Modal cancelled → local");
-    } else {
-      setItem(item, "failed", "failed");
-    }
+    update(key, { status: "failed", note: clip(event.detail, 40) || "Failed" });
   }
 }
 
 function onStage(event) {
-  const { stage, status } = event;
-  if (RESEARCH_STAGES.has(stage)) {
-    const running = status === "running";
-    setItem("catalog", stage === "reviewer" && DONE.has(status) ? (status === "failed" ? "failed" : "completed") : "running", running ? stage : `${stage} ${status}`);
-  } else if (stage === "evidence") {
-    setItem("crosscheck", status, event.detail ? event.detail.slice(0, 48) : status);
+  const { stage, status, data } = event;
+  if (CATALOG_STEPS.some(s => s[0] === stage)) catalogStep(stage, status, data);
+  else if (stage === "evidence") {
+    ensureEvidence();
+    if (!state.nodes.get("evidence").from.length) link("catalog", "evidence");
+    update("evidence", { status, note: clip(event.detail, 44), data: { text: event.detail } });
   } else if (stage === "geometry") {
-    for (const id of ["pangram", "reducto", "crosscheck"]) if (state.items[id].status === "pending") setItem(id, "skipped", "not in this run");
-    if (status === "running") minimizeKind(["agent", "doc"]);
-    if (status !== "completed") setItem("assembly", status, event.detail?.slice(0, 48));
+    if (!state.nodes.has("evidence")) {
+      node("parse-skip", "parsing", "Datasheet check", { kind: "plain" });
+      link("catalog", "parse-skip");
+      update("parse-skip", {
+        status: "skipped",
+        note: "Not part of the sample",
+        data: { text: "The offline sample relies on catalog facts that were already reviewed. In a live run, Pangram scans each datasheet and Reducto parses it here." },
+      });
+    }
+    node("assembly", "generation", "Assemble parts", { kind: "vm" });
+    link(state.nodes.has("evidence") ? "evidence" : "parse-skip", "assembly");
+    if (status !== "completed") update("assembly", { status, note: clip(event.detail, 40) });
   } else if (stage === "export") {
     state.exported = status;
-    exportItem();
+    exportNode();
   }
-  if (stage === "evidence" && status === "running") minimizeKind(["agent"]);
 }
 
-function exportItem() {
-  const ex = state.exported;
-  const lean = state.lean;
-  if (ex === "failed") return setItem("export", "failed", "GLB export failed");
-  const done = ex === "completed" && lean && lean !== "running";
-  setItem("export", done ? "completed" : "running", [ex === "completed" ? "GLB ready" : "packaging", lean ? "Lean " + lean : null].filter(Boolean).join(" · "));
+function exportNode() {
+  node("export", "generation", "Export and prove", { kind: "export" });
+  link("assembly", "export");
+  const done = state.exported === "completed" && state.lean && state.lean !== "running";
+  update("export", {
+    status: state.exported === "failed" ? "failed" : done ? "completed" : "running",
+    note: done ? `GLB ready, Lean ${state.lean}` : state.exported === "completed" ? "Checking Lean proofs" : "Packaging GLB",
+  });
 }
 
-// ---------- model viewer ----------
-function modelWindow() {
-  const win = openWindow("model", "model", "Generated model", "forge://viewer");
+// ---------- model ----------
+function ensureViewer() {
   if (!state.viewer) {
-    const stage = h("div", "pd-gl");
-    const tabs = h("div", "pd-tabs");
-    win.body.append(tabs, stage);
-    state.viewer = createViewer(stage);
-    state.viewer.tabs = tabs;
+    state.viewerHost = h("div", "pd-gl");
+    state.viewer = createViewer(state.viewerHost);
   }
-  return win;
 }
 
-function loadModel(url, label) {
-  if (!url || !state) return;
-  if (!state.models.some(m => m.url === url)) state.models.push({ url, label });
-  const win = modelWindow();
-  setWinStatus(win, "running");
-  win.foot.textContent = "loading " + label;
-  const viewer = state.viewer;
-  const show = model => {
-    viewer.tabs.replaceChildren(...state.models.map(m => {
-      const tab = h("button", "pd-tab", m.label);
-      tab.type = "button";
-      tab.setAttribute("aria-pressed", String(m.url === model.url));
-      tab.addEventListener("click", () => show(m));
-      return tab;
-    }));
-    viewer.load(model.url).then(info => {
-      setWinStatus(win, "completed");
-      win.foot.textContent = `${model.label} · ${info.meshes} meshes · ${info.size}`;
-    }, () => {
-      setWinStatus(win, "failed");
-      win.foot.textContent = "Could not load " + model.label;
-    });
-  };
-  show(state.models.at(-1));
+function addModel(url, label) {
+  if (!url) return;
+  let m = state.models.find(x => x.url === url);
+  if (!m) {
+    m = { url, label };
+    state.models.push(m);
+  }
+  node("model", "generation", "3D model", { kind: "model" });
+  link("export", "model");
+  for (const key of ["modal-enclosure", "local-enclosure"]) if (state.nodes.has(key)) link(key, "model", key === "modal-enclosure" && state.nodes.get(key).status !== "completed");
+  if (!state.pinned) state.selected = "model";
+  showModel(m);
+}
+
+function showModel(m) {
+  state.model = m;
+  state.inspected = null; // rebuild tabs
+  ensureViewer();
+  update("model", { status: "running", note: "Loading " + m.label.toLowerCase() });
+  state.viewer.load(m.url).then(info => {
+    state.modelInfo = `${m.label}: ${info.meshes} meshes, ${info.size}. Drag to turn it.`;
+    update("model", { status: "completed", note: `${state.models.length} model${state.models.length > 1 ? "s" : ""} ready` });
+  }, () => {
+    state.modelInfo = "Could not load " + m.label + ".";
+    update("model", { status: "failed", note: "Load failed" });
+  });
 }
 
 function createViewer(host) {
@@ -462,35 +560,23 @@ function createViewer(host) {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.autoRotate = !reduceMotion;
-  controls.autoRotateSpeed = 2.4;
+  controls.autoRotateSpeed = 1.6;
   const loader = new GLTFLoader();
+  const crew = createCrew(loader, scene);
   let root = null;
-  let parts = [];
   let token = 0;
-  let frame = 0;
+  let raf = 0;
   const t0 = performance.now();
 
-  function resize() {
-    const w = host.clientWidth || 300;
-    const hgt = host.clientHeight || 200;
-    renderer.setSize(w, hgt, false);
-    camera.aspect = w / hgt;
-    camera.updateProjectionMatrix();
-  }
-
   function loop() {
-    frame = requestAnimationFrame(loop);
+    raf = requestAnimationFrame(loop);
     if (!host.isConnected) return;
-    resize();
-    const t = (performance.now() - t0) / 1000;
-    if (!reduceMotion) {
-      // Explode and re-assemble on a loop; each part on its own phase.
-      for (const p of parts) {
-        const k = 0.5 - 0.5 * Math.cos(t * 1.3 + p.phase);
-        p.object.position.copy(p.home).addScaledVector(p.dir, p.reach * k);
-        p.object.rotation.set(p.rot.x, p.rot.y + Math.sin(t * 0.9 + p.phase) * 0.25 * k, p.rot.z);
-      }
-    }
+    const w = host.clientWidth || 300;
+    const hh = host.clientHeight || 200;
+    renderer.setSize(w, hh, false);
+    camera.aspect = w / hh;
+    camera.updateProjectionMatrix();
+    crew.update((performance.now() - t0) / 1000, reduceMotion);
     controls.update();
     renderer.render(scene, camera);
   }
@@ -507,35 +593,25 @@ function createViewer(host) {
       const box = new Box3().setFromObject(root);
       const centre = box.getCenter(new Vector3());
       const size = box.getSize(new Vector3());
-      const radius = Math.max(size.length() / 2, 1e-3);
-      parts = [];
       let meshes = 0;
       root.traverse(o => { if (o.isMesh) meshes++; });
-      // Animate the top-level parts (or the root's children when wrapped in one node).
-      let top = root.children;
-      while (top.length === 1 && top[0].children.length) top = top[0].children;
-      top.forEach((object, i) => {
-        const b = new Box3().setFromObject(object);
-        const c = b.isEmpty() ? centre.clone() : b.getCenter(new Vector3());
-        const dir = c.sub(centre);
-        if (dir.lengthSq() < 1e-10) dir.set(0, 1, 0);
-        dir.normalize();
-        dir.y = Math.abs(dir.y) + 0.35;
-        dir.normalize();
-        parts.push({ object, home: object.position.clone(), rot: object.rotation.clone(), dir, reach: radius * 0.45, phase: i * 0.45 });
-      });
+      // Frame the model plus the crew walking around it.
+      const reach = await crew.attach(root);
+      if (mine !== token) return { meshes: 0, size: "" };
+      const radius = Math.max(size.length() / 2, reach * 0.85, 1e-3);
       root.traverse(o => {
-        if (o.isMesh && o.material && "emissive" in o.material && o.material.emissive) o.material.emissive = new Color(0x050505);
+        if (o.isMesh && o.material?.emissive) o.material.emissive = new Color(0x050505);
       });
       controls.target.copy(centre);
       camera.position.copy(centre).add(new Vector3(radius * 1.9, radius * 1.3, radius * 2.3));
       camera.near = radius / 100;
       camera.far = radius * 40;
       camera.updateProjectionMatrix();
-      return { meshes, size: `${(size.x * 1000).toFixed(0)}×${(size.z * 1000).toFixed(0)}×${(size.y * 1000).toFixed(0)} mm` };
+      return { meshes, size: `${(size.x * 1000).toFixed(0)} × ${(size.z * 1000).toFixed(0)} × ${(size.y * 1000).toFixed(0)} mm` };
     },
     dispose() {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(raf);
+      crew.dispose();
       renderer.dispose();
     },
   };
@@ -543,22 +619,15 @@ function createViewer(host) {
 
 // ---------- public API ----------
 export function resetDeck(mode, brief) {
-  if (state?.viewer) state.viewer.dispose();
-  desk()?.replaceChildren();
-  state = fresh(mode, brief);
-  $("pd-deck").hidden = false;
-  $("pd-deck").dataset.status = "running";
-  setItem("brief", "completed", (brief || "sample brief").slice(0, 40) + ((brief || "").length > 40 ? "…" : ""));
-  setItem("mode", "completed", mode === "sample" ? "offline sample" : "live");
+  state?.viewer?.dispose();
+  state = { mode, brief, started: performance.now(), nodes: new Map(), dirty: true, models: [], selected: "brief", pinned: false };
+  node("brief", "input", "Brief", { kind: "brief", status: "completed", note: clip(brief || "Sample wristband brief", 34) });
+  $("pd-follow").hidden = true;
   clearInterval(tick);
   tick = setInterval(() => {
-    if (!state) return;
-    $("pd-clock").textContent = secs((performance.now() - state.started) / 1000);
-    for (const win of state.windows.values()) {
-      if (win.kind === "vm" && !win.done && win.clock) win.clock.textContent = secs((performance.now() - win.t0) / 1000);
-    }
-  }, 100);
-  renderRail();
+    if (state && !state.finished) $("pd-clock").textContent = secs((performance.now() - state.started) / 1000);
+  }, 200);
+  schedule();
 }
 
 export function applyDeckEvent(event) {
@@ -567,29 +636,45 @@ export function applyDeckEvent(event) {
   else if (event.type === "source_audit") onSource(event);
   else if (event.type === "compute") onCompute(event);
   else if (event.type === "stage") onStage(event);
-  else if (event.type === "verification") {
+  else if (event.type === "catalog_lookup") {
+    catalogNode();
+    const n = state.nodes.get("catalog");
+    n.data.lookups = [...(n.data.lookups || []).filter(l => l.role !== event.role), { role: event.role, parts: event.parts ?? [] }];
+    update("catalog", { note: `Comparing ${event.role} options` });
+  } else if (event.type === "verification") {
     state.lean = event.status === "completed" ? event.data?.status ?? "done" : event.status;
-    exportItem();
+    state.leanText = event.status === "completed" && event.data
+      ? `${event.data.verified_count} proved, ${event.data.failed_count} failed, ${event.data.unverified_count} open`
+      : STATUS_TEXT[event.status] || event.status;
+    exportNode();
   }
-  else if (event.type === "catalog_lookup") setItem("catalog", "running", `${event.role} · ${event.parts?.length ?? 0} candidates`);
 }
 
 export function finishDeck(outcome, report) {
   if (!state) return;
   clearInterval(tick);
-  $("pd-deck").dataset.status = outcome;
-  for (const id of Object.keys(state.items)) {
-    const item = state.items[id];
-    if (item.status === "running") item.status = outcome === "failed" || outcome === "error" ? "failed" : "completed";
-    if (item.status === "pending") item.status = "skipped";
+  state.finished = true;
+  const failed = outcome === "failed" || outcome === "error";
+  for (const n of state.nodes.values()) {
+    if (n.status === "running" && n.kind !== "model") n.status = failed ? "failed" : "completed";
+    if (n.status === "pending") n.status = "skipped";
   }
-  if (report?.project?.glb_url && !state.models.length) loadModel(report.project.glb_url, "Assembly");
-  for (const win of state.windows.values()) if (win.status === "running" && win.kind !== "model") setWinStatus(win, "completed");
-  renderRail();
+  if (report?.project?.glb_url && !state.models.length) addModel(report.project.glb_url, "Assembly");
+  $("pd-clock").textContent = secs((performance.now() - state.started) / 1000);
+  state.inspected = null;
+  schedule();
 }
 
-addEventListener("resize", () => state && layout());
-$("pd-toggle")?.addEventListener("click", event => {
-  const hidden = desk().classList.toggle("is-hidden");
-  event.currentTarget.setAttribute("aria-pressed", String(!hidden));
+addEventListener("resize", () => state && schedule());
+$("pd-follow")?.addEventListener("click", () => {
+  state.pinned = false;
+  $("pd-follow").hidden = true;
+  const running = [...state.nodes.values()].filter(n => n.status === "running").pop();
+  select(running ? running.key : state.selected, false);
+});
+$("pd-graph-toggle")?.addEventListener("click", event => {
+  const show = $("research-view").classList.toggle("show-graph");
+  event.currentTarget.setAttribute("aria-pressed", String(show));
+  event.currentTarget.textContent = show ? "Hide event graph" : "Show event graph";
+  dispatchEvent(new Event("resize"));
 });

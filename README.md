@@ -12,7 +12,7 @@ uv run --locked --python 3.12 python -m forge_research.studio
 
 Open `http://127.0.0.1:8000`. **Use wristband brief** fills the editor. **Run offline sample** runs the research harness without a key. The report lists candidate parts, compatibility checks, and sources. Inspect the generated assembly, adjust the wrist circumference, or export the model as GLB and the report as JSON.
 
-For live research, set `GEMINI_API_KEY` and `FORGE_GEMINI_MODEL` in the server environment before starting the studio. The browser sends the brief to the local server, which calls Gemini. The wristband image is an illustrative concept study.
+For live research, enter a Gemini API key in the setup screen or set `GEMINI_API_KEY` before starting the studio. FORGE selects `gemini-4-argon` by default. You can choose another model in setup or set `FORGE_GEMINI_MODEL`; replacing a key preserves your existing model choice. The browser sends the brief to the local server, which calls Gemini. The wristband image is an illustrative concept study.
 
 The run graph streams the lead engineer, parts search, compatibility checks, reviewer, assembly, and GLB export as they happen. Select a node to see the associated part sources, decision, or build findings.
 
@@ -59,7 +59,7 @@ While the catalog workflow runs, the studio also fans the brief out to four Gemi
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `FORGE_SWARM` | `on` | `off` replays the labeled offline swarm instead |
-| `FORGE_SWARM_MODEL` | `FORGE_GEMINI_MODEL`, else `gemini-3.5-flash` | Gemini model for the specialists and the lead |
+| `FORGE_SWARM_MODEL` | `FORGE_GEMINI_MODEL`, else `gemini-4-argon` | Gemini model for the specialists and the lead |
 | `FORGE_SWARM_TIMEOUT` | `120` | Seconds before the swarm is stopped |
 
 Without a Gemini key, the offline sample replays a scripted swarm so the screen still shows every step. Smoke test: `uv run --locked --python 3.12 python -m forge_research.agents.swarm "your brief"`.
@@ -91,7 +91,7 @@ and source evidence. Offline samples remain explicitly labeled demonstrations.
 The separate general PCB studio is not independently datasheet-verified by this gate.
 
 Set `FORGE_DATASHEET_REVIEW_MODEL` to choose the verifier; it otherwise uses
-`FORGE_GEMINI_MODEL`, then `gemini-3.5-flash`. Reader calls time out and PDFs over
+`FORGE_GEMINI_MODEL`, then `gemini-4-argon`. Reader calls time out and PDFs over
 14 MB remain unverified by Gemini. Independent results are cached by PDF hash,
 subject, manufacturer, model and review/schema version; changed credentials or
 catalog values invalidate in-memory approvals. Review disputed cited pages and

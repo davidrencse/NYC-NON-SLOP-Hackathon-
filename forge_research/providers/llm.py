@@ -15,6 +15,7 @@ from typing import Literal
 from google.adk.models import BaseLlm
 
 from .usage import record_usage
+from .defaults import configured_gemini_model
 
 LiveMode = Literal["gemini"]
 
@@ -24,7 +25,7 @@ class ProviderUnavailable(RuntimeError):
 
 
 def gemini_model() -> str | None:
-    model = os.getenv("FORGE_GEMINI_MODEL", "").strip()
+    model = configured_gemini_model()
     has_key = any(os.getenv(name, "").strip() for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"))
     return model if has_key and model.startswith("gemini-") else None
 

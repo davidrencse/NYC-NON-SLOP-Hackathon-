@@ -2,23 +2,39 @@
 // assembly). Engineer PCB posts forge:engineer and the shell swaps to the
 // PCB studio without leaving the page. The iframe stays mounted so going
 // back does not wipe the run.
-import { useEffect, useRef, useState } from 'react'
-import { setStudio, useStudio } from '@/state/studio'
-import { activateResearch, isResearchReference, loadResearch, researchPrompt, type ResearchContext } from '@/ai/researchHandoff'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { getStudio, setStudio, useStudio } from '@/state/studio'
+import { activateResearch, isBoardGenerationInFlight, isResearchReference, loadResearch, researchPrompt, type ResearchSnapshot } from '@/ai/researchHandoff'
 
 export function ResearchPane() {
   const mode = useStudio((s) => s.mode)
   const board = useStudio((s) => s.board)
   const iframe = useRef<HTMLIFrameElement>(null)
-  const [handoff, setHandoff] = useState<ResearchContext | null>(null)
+  const handoff = useMemo(() => {
+    if (!board.researchHandoff) return null
+    try {
+      const snapshot = JSON.parse(board.researchHandoff.envelope.snapshot_json) as ResearchSnapshot
+      if (!snapshot || !Array.isArray(snapshot.parts)) return null
+      return { envelope: board.researchHandoff.envelope, snapshot }
+    } catch { return null }
+  }, [board.researchHandoff])
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [handoffError, setHandoffError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    if (!handoff) { setDownloadUrl(null); return }
+    const url = URL.createObjectURL(new Blob([JSON.stringify(handoff.envelope, null, 2)], { type: 'application/json' }))
+    setDownloadUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [handoff])
+
+  useEffect(() => {
     let controller: AbortController | null = null
+    const busy = () => isBoardGenerationInFlight() || !!getStudio().pendingPrompt
     const receive = async (reference: unknown) => {
+      if (busy()) { setHandoffError('Finish the current board generation before handing over another research run.'); return }
       controller?.abort()
-      setHandoff(null)
       if (!isResearchReference(reference)) { setLoading(false); setHandoffError('Invalid research handoff. Return to research.'); return }
       const current = controller = new AbortController()
       setLoading(true)
@@ -26,9 +42,9 @@ export function ResearchPane() {
       try {
         const context = await loadResearch(reference, current.signal)
         if (current.signal.aborted) return
+        if (busy()) throw new Error('Board generation started while loading research. Retry the handoff when it finishes.')
         const prompt = researchPrompt(context.snapshot)
         activateResearch(prompt, reference)
-        setHandoff(context)
         setStudio({ mode: 'engineer', scale: 'system', selected: null, device: null, pendingPrompt: prompt })
         const url = new URL(location.href)
         url.searchParams.delete('research')
@@ -59,11 +75,11 @@ export function ResearchPane() {
     {(loading || handoffError) && <p role={handoffError ? 'alert' : 'status'} className="fixed bottom-16 right-4 z-50 max-w-md rounded-lg border border-white/20 bg-black p-3 text-sm text-white">
       {handoffError || 'Loading saved research evidence…'}
     </p>}
-    {mode === 'engineer' && handoff && board.researchHandoff?.envelope.bundle_sha256 === handoff.envelope.bundle_sha256 && <details className="fixed bottom-16 left-4 z-40 max-w-sm rounded-lg border border-white/20 bg-black/90 p-3 text-xs text-white">
+    {mode === 'engineer' && handoff && <details className="fixed bottom-16 left-4 z-40 max-w-sm rounded-lg border border-white/20 bg-black/90 p-3 text-xs text-white">
       <summary>Research handoff · {handoff.snapshot.kind === 'evidence_backed' ? 'source evidence attached' : 'unverified inputs'}</summary>
       <p className="my-2">{handoff.snapshot.scope}</p>
       <p>{handoff.snapshot.parts.length} selected parts · Research proofs: {handoff.snapshot.research_verification?.status ?? 'not run'}</p>
-      <a className="mt-2 block underline" href={`/api/research/${handoff.snapshot.research_id}/engineering-handoff`} download>Download research bundle</a>
+      {downloadUrl && <a className="mt-2 block underline" href={downloadUrl} download={`research-${handoff.snapshot.research_id}.json`}>Download saved research bundle</a>}
     </details>}
     {mode === 'research' && (
       <button

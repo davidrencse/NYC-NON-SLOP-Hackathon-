@@ -11,6 +11,7 @@ from google.genai import types
 from pydantic import BaseModel, ConfigDict, Field
 
 from .usage import record_usage
+from .defaults import configured_gemini_model
 
 REVIEW_VERSION = 1
 CriticalField = Literal[
@@ -53,7 +54,7 @@ class ReviewUnavailable(RuntimeError):
 
 def review_model() -> str:
     return (os.getenv("FORGE_DATASHEET_REVIEW_MODEL", "").strip()
-            or os.getenv("FORGE_GEMINI_MODEL", "").strip() or "gemini-3.5-flash")
+            or configured_gemini_model())
 
 
 async def read_pdf(pdf: bytes, *, subject: str, manufacturer: str) -> IndependentRead:

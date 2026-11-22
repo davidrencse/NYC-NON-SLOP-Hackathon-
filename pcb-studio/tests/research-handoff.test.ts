@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 import { resolve } from 'node:path'
-import { createServer } from 'vite'
+import { Readable } from 'node:stream'
+import { EventEmitter } from 'node:events'
+import { createServer, runnerImport } from 'vite'
+import { forgeAi } from '../server/index.ts'
 import { resolveResearchHandoff } from '../server/research-handoff.ts'
 import { activateResearch, researchForPrompt, type ResearchContext } from '../src/ai/researchHandoff.ts'
 import { mapResearchParts, requireResearchParts, researchInstructions } from '../src/ai/researchConstraints.ts'
@@ -81,14 +84,70 @@ test('editing a prompt permanently drops the old research reference', () => {
   assert.equal(researchForPrompt('Build an EMG device'), undefined)
 })
 
-test('real generation pipeline blocks the mismatched catalog before any model call and carries mapped inputs on success', async (t) => {
+test('generation route passes the server snapshot, rejects edited briefs, and never falls back after a research failure', async (t) => {
+  const context = fixture()
+  t.mock.method(globalThis, 'fetch', async () => Response.json(context.envelope))
+  let calls = 0
+  let shouldFail = false
+  const mod = {
+    offlineLlm() { throw new Error('Research must not fall back') },
+    async runPipeline(request: { research: ResearchContext }) {
+      calls++
+      assert.deepEqual(request.research, context)
+      if (shouldFail) throw new Error('Exact research part missing')
+      return { board: { name: 'Fixture' }, warnings: [], catalogVersion: 'test', timings: {} }
+    },
+  }
+  let handler: (req: unknown, res: unknown) => Promise<void>
+  const plugin = forgeAi()
+  const hook = plugin.configureServer as (server: unknown) => void
+  hook({
+    config: { logger: { info() {} } },
+    ssrLoadModule: async () => mod,
+    middlewares: { use(path: string, fn: typeof handler) { if (path === '/api/generate') handler = fn } },
+  })
+  async function request(prompt: string) {
+    const req = Object.assign(Readable.from([Buffer.from(JSON.stringify({ prompt, research: reference(context), snapshot: { fake: true } }))]), {
+      method: 'POST', headers: { 'x-gemini-key': 'test-key-that-is-never-used' },
+    })
+    let output = ''
+    const res = Object.assign(new EventEmitter(), {
+      writableEnded: false, destroyed: false, statusCode: 0,
+      setHeader() {}, flushHeaders() {},
+      write(chunk: string) { output += chunk },
+      end() { this.writableEnded = true },
+    })
+    await handler(req, res)
+    return output.trim().split('\n').map((line) => JSON.parse(line))
+  }
+  const good = await request(context.snapshot.brief)
+  assert.ok(good.some((e) => e.type === 'board'))
+  assert.equal(calls, 1)
+  const changed = await request('Different requirements')
+  assert.match(changed.at(-1).message, /inputs changed/)
+  assert.equal(calls, 1)
+  shouldFail = true
+  const failed = await request(context.snapshot.brief)
+  assert.equal(calls, 2)
+  assert.equal(failed.at(-1).type, 'error')
+  assert.match(failed.at(-1).message, /Exact research part missing/)
+  assert.ok(!failed.some((e) => e.type === 'board'))
+})
+
+for (const mode of ['development', 'preview']) test(`${mode} pipeline blocks mismatched parts before model calls and preserves mapped research`, async (t) => {
   const root = process.cwd()
-  const server = await createServer({
+  const config = {
     configFile: false, root, logLevel: 'error', resolve: { alias: { '@': resolve(root, 'src') } },
     server: { middlewareMode: true, hmr: false, watch: null },
-  })
-  t.after(() => server.close())
-  const pipeline = await server.ssrLoadModule('/src/ai/pipeline.ts') as typeof import('../src/ai/pipeline.ts')
+  } as const
+  let pipeline: typeof import('../src/ai/pipeline.ts')
+  if (mode === 'development') {
+    const server = await createServer(config)
+    t.after(() => server.close())
+    pipeline = await server.ssrLoadModule('/src/ai/pipeline.ts') as typeof pipeline
+  } else {
+    pipeline = (await runnerImport<typeof pipeline>(resolve(root, 'server/pipeline-entry.ts'), config)).module
+  }
   const context = fixture()
   let calls = 0
   const llm = async (request: { system: string }) => {

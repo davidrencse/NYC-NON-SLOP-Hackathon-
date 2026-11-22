@@ -154,7 +154,7 @@ export function forgeAi(): Plugin {
       const log = (m: string) => server.config.logger.info(`[forge-ai] ${m}`, { timestamp: true })
       let mod: Promise<PipelineModule> | null = null
       const load = () =>
-        (mod ??= runnerImport<PipelineModule>(join(root, PIPELINE), {
+        (mod ??= runnerImport<PipelineModule>(join(root, 'server/pipeline-entry.ts'), {
           configFile: false,
           root,
           logLevel: 'error',

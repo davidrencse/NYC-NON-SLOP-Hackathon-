@@ -30,10 +30,32 @@ export function isResearchReference(value: unknown): value is ResearchReference 
 
 // Bound to the exact loaded brief, so manually starting another design drops its provenance.
 let active: { prompt: string; reference: ResearchReference } | null = null
-export function activateResearch(prompt: string, reference: ResearchReference) { active = { prompt: prompt.trim(), reference } }
+let revision = 0
+let generating = false
+export function activateResearch(prompt: string, reference: ResearchReference) {
+  active = { prompt: prompt.trim(), reference: { ...reference } }
+  revision++
+}
 export function researchForPrompt(prompt: string): ResearchReference | undefined {
-  if (active && active.prompt !== prompt.trim()) active = null
-  return active?.reference
+  if (active && active.prompt !== prompt.trim()) { active = null; revision++ }
+  return active ? { ...active.reference } : undefined
+}
+
+export function isBoardGenerationInFlight() { return generating }
+
+/** Prevent overlapping handoffs and reject late results from a superseded research run. */
+export function beginBoardGeneration(prompt: string) {
+  if (generating) throw new Error('Finish the current board generation before starting another handoff.')
+  const reference = researchForPrompt(prompt)
+  const startedAt = revision
+  generating = true
+  return {
+    reference,
+    assertCurrent() {
+      if (revision !== startedAt) throw new Error('Research changed during generation. Discarded the older result.')
+    },
+    finish() { generating = false },
+  }
 }
 
 export function researchPrompt(snapshot: ResearchSnapshot): string {

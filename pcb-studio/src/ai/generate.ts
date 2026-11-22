@@ -1,6 +1,6 @@
 import type { Board } from '@/data/board'
 import type { GenConstraints, GenEvent } from './types'
-import { researchForPrompt } from './researchHandoff'
+import { beginBoardGeneration } from './researchHandoff.ts'
 
 export type { GenConstraints, GenEvent, GenStage } from './types'
 
@@ -22,10 +22,19 @@ export async function generateBoard(
   onEvent: (e: GenEvent) => void = () => {},
   opts: GenerateOptions = {},
 ): Promise<Board> {
+  const generation = beginBoardGeneration(prompt)
+  try { return await readGeneratedBoard(prompt, onEvent, opts, generation) }
+  finally { generation.finish() }
+}
+
+async function readGeneratedBoard(
+  prompt: string, onEvent: (e: GenEvent) => void, opts: GenerateOptions,
+  generation: ReturnType<typeof beginBoardGeneration>,
+): Promise<Board> {
   const res = await fetch(opts.endpoint ?? '/api/generate', {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/x-ndjson', ...keyHeader() },
-    body: JSON.stringify({ prompt, constraints: opts.constraints, research: researchForPrompt(prompt) }),
+    body: JSON.stringify({ prompt, constraints: opts.constraints, research: generation.reference }),
     signal: opts.signal,
   })
   if (!res.ok || !res.body) {
@@ -52,12 +61,22 @@ export async function generateBoard(
     try {
       e = JSON.parse(line) as GenEvent
     } catch {
-      return
+      throw new Error('Invalid generation response. The board was not accepted.')
     }
-    onEvent(e)
-    if (e.type === 'board') board = e.board
-    else if (e.type === 'done') done = true
+    generation.assertCurrent()
+    if (!e || typeof e.type !== 'string' || done) throw new Error('Invalid generation event order')
+    if (e.type === 'board') {
+      if (board || !e.board) throw new Error('Invalid board response')
+      const returnedHash = e.board.researchHandoff?.envelope.bundle_sha256
+      if (returnedHash !== generation.reference?.bundleSha256) throw new Error('Generated board does not match the research handoff')
+      board = e.board
+    }
+    else if (e.type === 'done') {
+      if (!board) throw new Error('Server finished without a board')
+      done = true
+    }
     else if (e.type === 'error') throw new Error(e.message)
+    onEvent(e)
   }
 
   try {
@@ -77,9 +96,12 @@ export async function generateBoard(
     handle(buf)
   } finally {
     opts.signal?.removeEventListener('abort', onAbort)
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
   if (opts.signal?.aborted) throw new DOMException('Generation aborted', 'AbortError')
-  if (!board) throw new Error(done ? 'Server finished without a board' : 'Connection closed before the board arrived')
+  generation.assertCurrent()
+  if (!done || !board) throw new Error('Connection closed before generation completed. The board was not accepted.')
   return board
 }
 

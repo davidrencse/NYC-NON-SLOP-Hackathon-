@@ -18,6 +18,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .defaults import DEFAULT_GEMINI_MODEL, configured_gemini_model
+
 KEYS_FILE = Path(os.getenv("FORGE_KEYS_FILE") or Path(__file__).resolve().parents[2] / ".forge-keys.local")
 
 # field -> (env var, provider, label, secret)
@@ -68,6 +70,8 @@ def integrations_status() -> dict[str, Any]:
     fields: dict[str, dict[str, Any]] = {}
     for field, (env, provider, label, secret) in FIELDS.items():
         value = os.getenv(env, "").strip()
+        if field == "gemini_model":
+            value = configured_gemini_model()
         if field == "gemini_api_key" and not value:
             value = os.getenv("GOOGLE_API_KEY", "").strip()
         fields[field] = {
@@ -82,9 +86,10 @@ def integrations_status() -> dict[str, Any]:
     for name, meta in PROVIDERS.items():
         needed = meta["needs"].split(",")
         providers[name] = {**meta, "configured": all(fields[f]["set"] for f in needed)}
-    if providers["gemini"]["configured"] and not os.getenv("FORGE_GEMINI_MODEL", "").startswith("gemini-"):
+    if providers["gemini"]["configured"] and not configured_gemini_model().startswith("gemini-"):
         providers["gemini"]["configured"] = False
-    return {"fields": fields, "providers": providers, "remembered": KEYS_FILE.exists()}
+    return {"fields": fields, "providers": providers, "remembered": KEYS_FILE.exists(),
+            "default_gemini_model": DEFAULT_GEMINI_MODEL}
 
 
 def update_keys(update: KeyUpdate) -> dict[str, Any]:
@@ -107,6 +112,8 @@ def update_keys(update: KeyUpdate) -> dict[str, Any]:
             os.environ.pop(env, None)
             if field == "gemini_api_key":
                 os.environ.pop("GOOGLE_API_KEY", None)
+    if any(os.getenv(name, "").strip() for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY")):
+        os.environ["FORGE_GEMINI_MODEL"] = configured_gemini_model()
     if update.remember:
         save_keys()
     return integrations_status()

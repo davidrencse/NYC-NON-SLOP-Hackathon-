@@ -31,7 +31,7 @@ async function loadModels() {
   modelRequest?.abort();
   const controller = new AbortController();
   modelRequest = controller;
-  const selected = select.value;
+  const selected = select.value || status.default_gemini_model;
   select.disabled = true;
   select.setAttribute("aria-busy", "true");
   help.textContent = "Loading models…";
@@ -46,11 +46,11 @@ async function loadModels() {
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || "Could not load models. Try again.");
     if (controller.signal.aborted) return;
-    select.replaceChildren(new Option("Choose a Gemini model", ""));
-    for (const model of body.models) select.add(new Option(`${model.label} (${model.id})`, model.id));
-    if (selected && !body.models.some(model => model.id === selected)) select.add(new Option(`${selected} (saved)`, selected));
+    select.replaceChildren();
+    for (const model of body.models) select.add(new Option(`${model.label} (${model.id})${model.id === status.default_gemini_model ? ' · Recommended' : ''}`, model.id));
+    if (!body.models.some(model => model.id === selected)) select.add(new Option(selected === status.default_gemini_model ? `${selected} · Recommended` : `${selected} (saved)`, selected));
     select.value = selected;
-    help.textContent = body.reason === "no-key" ? "Enter your API key, then load models." : body.models.length ? "Choose the model for research and repair." : "No generation models were listed for this key.";
+    help.textContent = body.reason === "no-key" ? "Argon is selected by default. Add your key to load other models." : body.models.some(model => model.id === selected) ? "Argon is recommended. You can choose another model." : "Selected model was not listed for this key. Choose an available model or check your access.";
   } catch (error) {
     if (!controller.signal.aborted) help.textContent = error.name === "TimeoutError" ? "Loading timed out. Try loading models again." : error.message;
   } finally {
@@ -88,8 +88,9 @@ function render() {
       Object.assign(input, { id, name: field, autocomplete: "off", spellcheck: false });
       if (type !== "select") input.type = type;
       else {
-        input.add(new Option(placeholder, ""));
-        if (info.set) input.add(new Option(info.hint, info.hint));
+        const selected = info.hint || status.default_gemini_model;
+        input.add(new Option(selected === status.default_gemini_model ? `${selected} · Recommended` : selected, selected));
+        input.value = selected;
       }
       input.placeholder = info.set ? `${info.secret ? "Saved " : ""}${info.hint}` : placeholder;
       if (!info.secret && info.set) input.value = info.hint;
@@ -100,7 +101,7 @@ function render() {
         const refresh = el("button", "Load models", "text-link setup-clear");
         refresh.type = "button";
         refresh.addEventListener("click", loadModels);
-        const help = el("small", "Enter your API key, then load models.", "setup-model-help");
+        const help = el("small", "Argon is selected by default. Add your key to load other models.", "setup-model-help");
         help.id = "gemini-model-help";
         help.setAttribute("aria-live", "polite");
         input.setAttribute("aria-describedby", help.id);
@@ -188,16 +189,7 @@ export async function initSetup(done) {
   onDone = done || onDone;
   $("#setup-form").addEventListener("submit", async event => {
     event.preventDefault();
-    const model = $("#key-gemini_model");
-    if (model?.disabled) {
-      $("#setup-message").textContent = "Wait for the model list to finish loading.";
-      return;
-    }
-    if ($("#key-gemini_api_key")?.value.trim() && !model?.value) {
-      $("#setup-message").textContent = "Load models and choose a Gemini model before continuing.";
-      model?.focus();
-      return;
-    }
+    // Model discovery is optional: the recommended default is already selected.
     const values = collect();
     // Clear typed secrets from the DOM whether or not the save succeeds.
     for (const input of document.querySelectorAll('#setup-providers input[data-secret="true"]')) input.value = "";

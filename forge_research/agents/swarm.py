@@ -23,6 +23,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from forge_research.providers.usage import record_usage
+from forge_research.providers.defaults import configured_gemini_model
 
 TIMEOUT_S = float(os.getenv("FORGE_SWARM_TIMEOUT", "120"))
 
@@ -78,8 +79,7 @@ class SwarmReport(BaseModel):
 def swarm_model() -> str:
     return (
         os.getenv("FORGE_SWARM_MODEL", "").strip()
-        or os.getenv("FORGE_GEMINI_MODEL", "").strip()
-        or "gemini-3.5-flash"
+        or configured_gemini_model()
     )
 
 

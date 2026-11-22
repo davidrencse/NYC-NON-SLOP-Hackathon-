@@ -93,6 +93,7 @@ export function bom() {
     nets: b.nets.map((n) => n.name),
     traceLengthMm: +traces.reduce((s, t) => s + traceLength(t), 0).toFixed(2),
     verification: getStudio().verification,
+    researchHandoff: b.researchHandoff,
   }
 }
 

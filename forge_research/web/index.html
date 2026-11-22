@@ -204,12 +204,19 @@
 
       <section id="pd-deck" class="pd" aria-labelledby="pd-title">
         <div class="pd-head">
-          <h3 id="pd-title">Pipeline</h3>
-          <span class="rg-k">Now</span><b id="pd-current" aria-live="polite">Queued</b>
+          <h3 id="pd-title">How this run is going</h3>
+          <p class="pd-now">Now: <b id="pd-current" aria-live="polite">Starting</b></p>
           <b id="pd-clock" class="pd-clock">0.0 s</b>
-          <button type="button" id="pd-toggle" class="pd-toggle" aria-pressed="true">Windows</button>
+          <button type="button" id="pd-follow" class="pd-btn" hidden>Follow live</button>
+          <button type="button" id="pd-graph-toggle" class="pd-btn" aria-pressed="false">Show event graph</button>
         </div>
-        <ol id="pd-rail" class="pd-rail" aria-label="Pipeline phases"></ol>
+        <div class="pd-main">
+          <div id="pd-canvas" class="pd-canvas">
+            <svg id="pd-wires" class="pd-wires" aria-hidden="true"></svg>
+            <div id="pd-flow" class="pd-flow" role="group" aria-label="Run flowchart"></div>
+          </div>
+          <aside id="pd-inspect" class="pd-inspect" aria-live="polite" aria-label="Selected step"></aside>
+        </div>
       </section>
 
       <div id="rg-canvas" class="rg-canvas">
@@ -226,8 +233,6 @@
           </div>
           <div id="map-detail" class="rg-detail"></div>
         </div>
-        <div id="pd-desk" class="pd-desk" aria-label="Live agent, parsing and compute windows"></div>
-        <div id="pd-dock" class="pd-dock" aria-label="Minimized windows" hidden></div>
         <div class="rg-caption" aria-hidden="true">
           <strong id="rg-caption-title">Waiting</strong>
           <span id="rg-caption-line">0 / 10 stages</span>

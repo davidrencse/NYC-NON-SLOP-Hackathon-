@@ -9,9 +9,13 @@ import { readFileSync } from 'node:fs'
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models'
 
 export const MODELS = {
-  argon: process.env.GEMINI_PLAN_MODEL || 'gemini-4-argon',
-  carbon: process.env.GEMINI_FAST_MODEL || 'gemini-4-carbon',
+  get argon() { return process.env.GEMINI_PLAN_MODEL?.trim() || selectedModel() },
+  get carbon() { return process.env.GEMINI_FAST_MODEL?.trim() || selectedModel() },
 } as const
+
+function selectedModel(): string {
+  return process.env.FORGE_GEMINI_MODEL?.trim() || savedKey('FORGE_GEMINI_MODEL') || 'gemini-4-argon'
+}
 
 /** GEMINI_API_KEY, or (outside production) the file named by GEMINI_API_KEY_FILE. */
 export function resolveApiKey(env: Record<string, string | undefined>): string | null {
