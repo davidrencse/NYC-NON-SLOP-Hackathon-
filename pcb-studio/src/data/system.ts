@@ -1,8 +1,8 @@
 // System-scale assembly: the custom PCB plus the off-board devices it drives.
 // Coordinates in mm, world X right, Z toward the viewer (rover front is -Z).
-import { byId, catalog, type CatalogItem } from './catalog'
-import { WEARABLE, VEHICLE, FLYER, EYEWEAR, BREWER, LAMP, PRINTER } from './bodyPolicy'
-export { hasBuiltInBody as hasHandBuiltBody } from './bodyPolicy'
+import { byId, catalog, type CatalogItem } from './catalog/index.ts'
+import { WEARABLE, VEHICLE, FLYER, EYEWEAR, BREWER, LAMP, PRINTER } from './bodyPolicy.ts'
+export { hasBuiltInBody as hasHandBuiltBody } from './bodyPolicy.ts'
 
 export type Bus = 'power' | 'motor' | 'i2c' | 'gpio' | 'data'
 

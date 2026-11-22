@@ -1,4 +1,4 @@
-import { ladder, retail, type CatalogItem, type DesignRules } from './types'
+import { ladder, retail, type CatalogItem, type DesignRules } from './types.ts'
 
 /**
  * Generic passives and connectors. `resistorItem` snaps to E24 so an agent

@@ -1,4 +1,4 @@
-import type { PartKind } from '@/data/board'
+import type { PartKind } from '../board.ts'
 
 /**
  * Static hardware catalog. Numbers marked `approx` are best estimates,

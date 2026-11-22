@@ -81,6 +81,8 @@ from .validation_html import render_validation_html
 WEB = Path(__file__).with_name("web")
 logger = logging.getLogger(__name__)
 app = FastAPI(title="FORGE Studio", docs_url=None, redoc_url=None)
+from .consumer_manual import router as consumer_manual_router
+app.include_router(consumer_manual_router)
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 
 # Browsers were keeping the last HTML/JS (304s) after this process died, so the

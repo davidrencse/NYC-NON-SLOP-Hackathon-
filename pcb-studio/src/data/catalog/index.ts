@@ -1,8 +1,8 @@
-import type { Part } from '@/data/board'
-import { boards } from './boards'
-import { generalParts, designRules } from './general'
-import { peripherals } from './peripherals'
-import type { CatalogCategory, CatalogItem } from './types'
+import type { Part } from '../board.ts'
+import { boards } from './boards.ts'
+import { generalParts, designRules } from './general.ts'
+import { peripherals } from './peripherals.ts'
+import type { CatalogCategory, CatalogItem } from './types.ts'
 
 /** Bump when the static data changes. Safe to use as a cache key. */
 export const CATALOG_VERSION = '2026.11.21'
@@ -162,8 +162,8 @@ export function toPart(item: CatalogItem, ref: string, x: number, y: number, rot
 }
 
 export { boards, peripherals, generalParts, designRules }
-export { E24, formatResistance, nearestE24, resistorItem } from './general'
-export { INTERFACE_NAMES, ladder, money, retail } from './types'
+export { E24, formatResistance, nearestE24, resistorItem } from './general.ts'
+export { INTERFACE_NAMES, ladder, money, retail } from './types.ts'
 export type {
   BoardHeader,
   CatalogCategory,
@@ -175,4 +175,4 @@ export type {
   CatalogVoltage,
   DesignRules,
   MountingHole,
-} from './types'
+} from './types.ts'

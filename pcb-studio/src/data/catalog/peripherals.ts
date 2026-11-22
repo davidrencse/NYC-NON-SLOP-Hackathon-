@@ -1,4 +1,4 @@
-import { retail, type CatalogItem } from './types'
+import { retail, type CatalogItem } from './types.ts'
 
 /**
  * Breakouts are catalogued in the form makers actually buy. Package drawings

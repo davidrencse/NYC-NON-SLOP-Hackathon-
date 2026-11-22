@@ -7,6 +7,7 @@ import { forgeAi } from './server/index.ts'
 import { verifyPlugin } from './server/verify.ts'
 import { shopPlugin } from './server/shop.ts'
 import { repairPlugin } from './server/repair.ts'
+import { consumerRepairPlugin } from './server/consumer-repair.ts'
 
 const RESEARCH = process.env.FORGE_RESEARCH_URL ?? 'http://127.0.0.1:8000'
 
@@ -27,7 +28,7 @@ function advertiseUrl(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), forgeAi(), verifyPlugin(), shopPlugin(), repairPlugin(), advertiseUrl()],
+  plugins: [react(), tailwindcss(), forgeAi(), verifyPlugin(), shopPlugin(), repairPlugin(), consumerRepairPlugin(), advertiseUrl()],
   // The research swarm (forge_research FastAPI) runs on :8000. Its page is shown in the
   // Research tab under /research; its own /api and /static paths are forwarded too.
   // /api/generate and /api/verify are served by the plugins above and never reach it.
@@ -50,7 +51,8 @@ export default defineConfig({
         proxyTimeout: 0,
         bypass(req) {
           const url = req.url ?? ''
-          if (/^\/api\/(generate|verify|repair|shop)(\/|$|\?)/.test(url)) return url
+          if (url.startsWith('/api/consumer-repair/manual')) return
+          if (/^\/api\/(generate|verify|repair|shop|consumer-repair)(\/|$|\?)/.test(url)) return url
         },
       },
     },
