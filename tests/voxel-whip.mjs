@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { actorAt, hitActor, boost } from '../forge_research/web/diorama/whip-state.mjs';
+const crew = [{}, {}];
+const mesh = index => ({ userData: { crew: index } });
+assert.equal(actorAt([{ object: { parent: mesh(1) } }, { object: mesh(0) }], crew), crew[1]);
+assert.equal(actorAt([], crew), null);
+hitActor(null, 0);
+hitActor(crew[0], 100);
+assert.equal(boost(crew[0], 101), 2);
+assert.equal(boost(crew[1], 101), 1);
+for (let i = 0; i < 1000; i++) hitActor(crew[0], i);
+assert.equal(crew[0].whip.until, 999 + 2400);
+assert.equal(boost(crew[0], 3400), 1);
+assert.equal(crew[0].whip, null);
+console.log('voxel whip: nearest ancestor, miss, isolated boost, repeated-hit bound, reset passed');
