@@ -109,12 +109,12 @@ export function dioramaFinish(outcome, message, report) {
 
 function setOpen(next) {
   const view = document.getElementById("research-view");
-  const button = document.getElementById("rg-cute-toggle");
-  if (!view || !button) return;
+  const toggle = document.getElementById("rg-cute-toggle");
+  if (!view || !toggle) return;
   open = next;
   view.classList.toggle("rg-cute", open);
-  button.setAttribute("aria-pressed", String(open));
-  button.textContent = open ? "Graph view" : "Cute mode";
+  toggle.dataset.view = open ? "cute" : "graph";
+  toggle.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.view === toggle.dataset.view)));
   if (open && !frame) {
     const wrap = document.createElement("div");
     wrap.className = "rg-diorama";
@@ -140,16 +140,29 @@ function setOpen(next) {
 function init() {
   const bar = document.querySelector("#research-view .rg-bar");
   if (!bar || document.getElementById("rg-cute-toggle")) return;
-  const button = document.createElement("button");
-  button.id = "rg-cute-toggle";
-  button.type = "button";
-  button.className = "rg-cute-btn";
-  button.textContent = "Cute mode";
-  button.setAttribute("aria-pressed", "false");
-  button.title = "Watch the research crew work in a 3D lab and factory";
-  button.addEventListener("click", () => setOpen(!open));
+  // Segmented switch: Graph (event DAG) | Cute (3D diorama).
+  const toggle = document.createElement("div");
+  toggle.id = "rg-cute-toggle";
+  toggle.className = "rg-view-switch";
+  toggle.setAttribute("role", "group");
+  toggle.setAttribute("aria-label", "Research view");
+  toggle.dataset.view = "graph";
+  toggle.innerHTML = `
+    <span class="rg-view-thumb" aria-hidden="true"></span>
+    <button type="button" data-view="graph" aria-pressed="true" title="Live agent event graph">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="4" r="1.8"/><circle cx="12.5" cy="4" r="1.8"/><circle cx="8" cy="12" r="1.8"/><path d="M5 5.2 7 10.4M11 5.2 9 10.4M5.3 4h5.4"/></svg>
+      Graph
+    </button>
+    <button type="button" data-view="cute" aria-pressed="false" title="Watch the research crew work in a 3D lab and factory">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 9.6 6.4 14.2 8 9.6 9.6 8 14.2 6.4 9.6 1.8 8 6.4 6.4Z"/></svg>
+      Cute
+    </button>`;
+  toggle.addEventListener("click", event => {
+    const choice = event.target.closest("button[data-view]");
+    if (choice) setOpen(choice.dataset.view === "cute");
+  });
   const mode = document.getElementById("map-mode");
-  mode ? mode.after(button) : bar.append(button);
+  mode ? mode.after(toggle) : bar.append(toggle);
   let saved = false;
   try { saved = localStorage.getItem("forge:cute-mode") === "1"; } catch { /* storage unavailable */ }
   if (saved) setOpen(true);

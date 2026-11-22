@@ -87,8 +87,8 @@
 
 /* Holographic replacement picker (scene/HoloSwap.tsx) */
 .holo {
-  --holo: oklch(0.86 0.14 200);
-  --holo-dim: oklch(0.86 0.14 200 / 0.35);
+  --holo: oklch(0.97 0 0);
+  --holo-dim: oklch(0.97 0 0 / 0.22);
   --holo-ok: oklch(0.82 0.17 150);
   --holo-bad: oklch(0.82 0.16 75);
   position: relative; transform: translate(-4px, -56px);
@@ -102,7 +102,7 @@
 .holo-ping { fill: none; stroke: var(--holo); stroke-width: 1; transform-origin: 4px 56px; animation: holo-ping 1.8s ease-out infinite; }
 .holo-panel {
   pointer-events: auto; position: relative; margin-top: 2px; width: 300px;
-  background: linear-gradient(180deg, oklch(0.16 0.02 220 / 0.86), oklch(0.10 0.01 220 / 0.9));
+  background: linear-gradient(180deg, oklch(0.12 0 0 / 0.94), oklch(0.06 0 0 / 0.96));
   border: 1px solid var(--holo-dim); border-radius: 3px;
   box-shadow: 0 0 0 1px oklch(0 0 0 / 0.4), 0 0 24px -6px var(--holo-dim), inset 0 0 30px -18px var(--holo);
   backdrop-filter: blur(10px);
@@ -116,16 +116,16 @@
 }
 .holo-panel::after { /* sweep */
   content: ""; position: absolute; left: 0; right: 0; height: 40px; top: -40px; pointer-events: none;
-  background: linear-gradient(180deg, transparent, oklch(0.86 0.14 200 / 0.08), transparent);
+  background: linear-gradient(180deg, transparent, oklch(0.97 0 0 / 0.08), transparent);
   animation: holo-sweep 3.2s 0.6s linear infinite;
 }
 .holo-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 8px; border-bottom: 1px solid var(--holo-dim); }
-.holo-idx { padding: 3px 5px; background: var(--holo); color: oklch(0.12 0.02 220); font-weight: 700; border-radius: 1px; }
+.holo-idx { padding: 3px 5px; background: var(--holo); color: oklch(0.08 0 0); font-weight: 700; border-radius: 1px; }
 .holo-title { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
 .holo-kicker { color: var(--holo); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .holo-name { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .holo-x { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid var(--holo-dim); border-radius: 2px; color: var(--holo); font-size: 14px; line-height: 1; transition: background .15s, color .15s; }
-.holo-x:hover, .holo-x:focus-visible { background: var(--holo); color: oklch(0.12 0.02 220); outline: none; }
+.holo-x:hover, .holo-x:focus-visible { background: var(--holo); color: oklch(0.08 0 0); outline: none; }
 .holo-spine { position: relative; list-style: none; margin: 0; padding: 6px 8px 6px 22px; max-height: 300px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--holo-dim) transparent; }
 .holo-spine::before { content: ""; position: absolute; left: 13px; top: 14px; bottom: 14px; width: 1px; background: linear-gradient(180deg, var(--holo), var(--holo-dim) 70%, transparent); }
 .holo-row {
@@ -133,10 +133,10 @@
   opacity: 0; transform: translateX(-6px); animation: holo-row .3s var(--ease-out-expo) forwards;
   transition: background .15s;
 }
-.holo-row.is-cursor { background: oklch(0.86 0.14 200 / 0.08); }
+.holo-row.is-cursor { background: oklch(0.97 0 0 / 0.08); }
 .holo-row.is-cursor::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--holo-dim); border-radius: 2px; pointer-events: none; }
 .holo-row.is-flash { animation: holo-flash .9s ease-out; opacity: 1; transform: none; }
-.holo-node { position: absolute; left: -12px; top: 10px; width: 7px; height: 7px; border: 1px solid var(--holo); background: oklch(0.12 0.02 220); transform: rotate(45deg); }
+.holo-node { position: absolute; left: -12px; top: 10px; width: 7px; height: 7px; border: 1px solid var(--holo); background: oklch(0.08 0 0); transform: rotate(45deg); }
 .holo-row.is-current .holo-node { background: var(--holo); box-shadow: 0 0 8px var(--holo); }
 .holo-node.is-warn { border-color: var(--holo-bad); }
 .holo-row::before { content: ""; position: absolute; left: -5px; top: 13px; width: 8px; height: 1px; background: var(--holo-dim); }
@@ -150,7 +150,7 @@
 .holo-meter { display: flex; align-items: center; gap: 6px; margin-top: 5px; padding-left: 13px; font-variant-numeric: tabular-nums; }
 .holo-bar { flex: 1; height: 2px; background: oklch(1 0 0 / 0.08); position: relative; }
 .holo-bar i { position: absolute; inset: 0 auto 0 0; background: var(--holo); box-shadow: 0 0 6px var(--holo); transition: width .5s var(--ease-out-expo); }
-.holo-row:not(.is-current) .holo-bar i { background: oklch(0.86 0.14 200 / 0.55); box-shadow: none; }
+.holo-row:not(.is-current) .holo-bar i { background: oklch(0.97 0 0 / 0.55); box-shadow: none; }
 .holo-price { width: 46px; text-align: right; }
 .holo-delta { width: 52px; text-align: right; font-size: 9.5px; color: oklch(0.7 0 0); }
 .holo-delta.is-down { color: var(--holo-ok); }
@@ -167,7 +167,7 @@
   transition: background .15s, color .15s, box-shadow .15s;
 }
 .holo-row.is-cursor .holo-swap, .holo-swap:hover { border-color: var(--holo); }
-.holo-swap:hover, .holo-swap:focus-visible { background: var(--holo); color: oklch(0.12 0.02 220); box-shadow: 0 0 12px var(--holo); outline: none; }
+.holo-swap:hover, .holo-swap:focus-visible { background: var(--holo); color: oklch(0.08 0 0); box-shadow: 0 0 12px var(--holo); outline: none; }
 .holo-swap:active { transform: scale(0.96); }
 .holo-tagcur { flex: none; color: var(--holo); padding: 4px 8px; font-size: 9px; text-shadow: 0 0 6px var(--holo); }
 .holo-empty { padding: 12px; color: oklch(0.7 0 0); }
@@ -177,7 +177,7 @@
 @keyframes holo-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes holo-row { to { opacity: 1; transform: none; } }
 @keyframes holo-sweep { to { top: 100%; } }
-@keyframes holo-flash { 0% { background: oklch(0.86 0.14 200 / 0.45); } 100% { background: transparent; } }
+@keyframes holo-flash { 0% { background: oklch(0.97 0 0 / 0.45); } 100% { background: transparent; } }
 @media (max-width: 640px) { .holo-panel { width: 240px; } }
 .forge-tag.is-dim { opacity: 0.28; }
 .forge-tag { transition: background .2s, border-color .2s, opacity .25s, transform .3s var(--ease-out-expo); }
