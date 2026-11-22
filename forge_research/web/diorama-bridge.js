@@ -139,6 +139,9 @@ function setOpen(next) {
 }
 
 function init() {
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") post({ type: "whip-off" });
+  });
   const bar = document.querySelector("#research-view .rg-bar");
   if (!bar || document.getElementById("rg-cute-toggle")) return;
   // Segmented switch: Graph (event DAG) | Cute (3D diorama).

@@ -584,10 +584,11 @@ function updateOverlays(t) {
   const line = live.on ? null : script.find(l => t >= l[0] && t < l[1]), nowMs = performance.now();
   crew.forEach(c => {
     const said = live.on && live.say.get(c), liveLine = said && said.until > nowMs ? said.text : null;
-    const speaking = !!liveLine || (line && line[2] === c), show = speaking || selected === c;
+    const reaction = c.whip && performance.now() < c.whip.start + 2000;
+    const speaking = !!liveLine || (line && line[2] === c), show = reaction || speaking || selected === c;
     const p = toScreen(v3.set(c.root.position.x, c.root.position.y + 2.05, c.root.position.z));
     c.bubble.style.opacity = show && p.on ? '1' : '0'; c.bubble.setAttribute('aria-hidden', String(!show));
-    if (show) { c.bubble.style.transform = `translate(${p.x | 0}px,${p.y | 0}px) translate(-50%,-100%)`; const txt = liveLine ?? (speaking ? line[3] : activity[c.pose]); const html = `<b>${c.name} · ${c.role}</b>${txt}`; if (c.bubble._h !== html) c.bubble.innerHTML = c.bubble._h = html; }
+    if (show) { c.bubble.style.transform = `translate(${p.x | 0}px,${p.y | 0}px) translate(-50%,-100%)`; const txt = reaction ? 'I’ll work faster, I promise!' : liveLine ?? (speaking ? line[3] : activity[c.pose]); const html = `<b>${c.name} · ${c.role}</b>${txt}`; if (c.bubble._h !== html) c.bubble.innerHTML = c.bubble._h = html; }
   });
   tags.forEach(o => { const p = toScreen(o.pos); o.el.style.transform = `translate(${p.x | 0}px,${p.y | 0}px) translate(-50%,0)`; o.el.style.opacity = p.on ? '1' : '0'; });
 }
