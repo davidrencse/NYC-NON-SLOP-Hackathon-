@@ -429,7 +429,7 @@ export function alternativesFor(dev: SystemDevice): Alternative[] {
     const reasons: string[] = []
     const warnings: string[] = []
     if (isCur) reasons.push('Current selection')
-    if (listed) reasons.push('Drop-in alternate')
+    if (listed) reasons.push('Catalog-listed alternative; fit unverified')
     if (shared.length) reasons.push(`Shares ${shared.map((s) => s.toUpperCase()).join(' / ')}`)
     const railOk = item.voltage.min <= dev.rail + 0.05 && item.voltage.max >= dev.rail - 0.05
     if (railOk) reasons.push(`Runs on ${dev.rail} V rail`)

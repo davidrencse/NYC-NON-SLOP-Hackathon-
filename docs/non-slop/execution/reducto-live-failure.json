@@ -1,0 +1,11 @@
+{
+  "provider": "reducto",
+  "execution": "actual API upload/extract through existing adapter",
+  "document": "docs/manuals/uln2003a.pdf",
+  "sha256": "ba83a908675b45c41e84fb06ea390efb10f4b7a358edfee656f87a968dd1d62f",
+  "elapsed_seconds": 23.424,
+  "endpoint_status": 502,
+  "error": "Reducto returned invalid field types",
+  "catalog_updated": false,
+  "notes": "Sanitized test outcome, not a captured successful parse. Raw response was not retained. No repeat paid parse performed. TI chip document is not rover motor evidence."
+}

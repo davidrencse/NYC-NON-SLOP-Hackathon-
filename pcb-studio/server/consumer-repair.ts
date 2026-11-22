@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import type { Plugin } from 'vite'
 import { defaultSystem, alternativesFor, type SystemDesign } from '../src/data/system.ts'
@@ -11,9 +13,15 @@ const warnings = [
 export function analyze(input: Record<string, unknown>, system = structuredClone(defaultSystem)) {
   if (typeof input.description !== 'string' || !input.description.trim() || input.description.length > 4000) throw new Error('description required (1–4000 characters)')
   if (!/rover/i.test(input.description)) throw new Error('Only the supported Rover R1 template is available')
+  if (input.budget === undefined && (input.description.match(/\$\s*\d/g)?.length ?? 0) !== 1) throw new Error('Provide one unambiguous USD budget')
   const budget = input.budget ?? Number(input.description.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? NaN)
   if (typeof budget !== 'number' || !Number.isFinite(budget) || budget < 0) throw new Error('Provide an explicit nonnegative USD budget')
   if (input.preserve_appearance !== undefined && typeof input.preserve_appearance !== 'boolean') throw new Error('preserve_appearance must be boolean')
+  const preserve = input.preserve_appearance ?? /appearance|original|preserv/i.test(input.description)
+  const exclusive = input.budget_exclusive ?? /under|below|less than/i.test(input.description)
+  if (typeof exclusive !== 'boolean') throw new Error('budget_exclusive must be boolean')
+  const quantity = input.quantity ?? 1
+  if (!Number.isInteger(quantity) || Number(quantity) < 1 || Number(quantity) > 4) throw new Error('quantity must be 1–4')
   const device = system.devices.find(d => d.id === (input.component_id ?? 'm1'))
   if (!device || device.bus !== 'motor') throw new Error('Select a supported motor component_id')
   const candidates = alternativesFor(device).map(a => {
@@ -21,21 +29,63 @@ export function analyze(input: Record<string, unknown>, system = structuredClone
     const electrical = a.item.voltage.min <= device.rail && a.item.voltage.max >= device.rail
     return { candidate_id: a.item.id, component_id: device.id, specs: a.item,
       changes: `${device.catalogId} → ${a.item.id}`, compatibility: electrical ? 'partial' : 'rejected',
-      appearance: a.current ? 'same catalog geometry; actual fit unverified' : 'unverified',
-      known_cost: price, currency: 'USD', price_kind: 'catalog_not_live_quote', within_known_budget: price === null ? null : price <= budget,
+      appearance: a.item.id === 'tt-motor-148' ? 'matches original template catalog geometry; actual fit unverified' : 'differs from original template catalog geometry; appearance unverified',
+      known_cost: price, currency: 'USD', price_kind: 'catalog_not_live_quote', within_known_budget: price === null ? null : exclusive ? price * Number(quantity) < budget : price * Number(quantity) <= budget,
+      cost: { unit: price, quantity, known_subtotal: price === null ? null : price * Number(quantity), total: null, currency: 'USD', total_within_budget: null }, preview_eligible: true,
       unknown_costs: ['shipping', 'tax', 'labor'], eligible: false,
-      explanation: { hypothesis: 'Replacement may help only if motor failure is independently confirmed', priorities: ['budget', 'preserve appearance'], reasons: a.reasons, rejected: [...a.warnings, ...(electrical ? [] : [`${device.rail} V rail exceeds supported voltage range`])], alternative_preferable: 'Same part preserves nominal geometry; other motors may require mounts and drivetrain changes' },
+      explanation: { hypothesis: 'Replacement may help only if motor failure is independently confirmed', priorities: ['budget', ...(preserve ? ['preserve appearance'] : [])], reasons: a.reasons.map(r => r.startsWith('Runs on') ? `Nominal rail in catalog range only; PWM/driver conditions unknown` : r), rejected: [...a.warnings, ...(electrical ? [] : [`${device.rail} V rail exceeds supported voltage range`])], alternative_preferable: 'Same part preserves nominal geometry; other motors may require mounts and drivetrain changes' },
       evidence: [{ kind: 'curated_catalog', source: 'src/data/catalog/peripherals.ts', component_id: a.item.id }], unresolved: warnings }
   })
-  return { goals: { description: input.description, budget, currency: 'USD', preserve_appearance: input.preserve_appearance ?? /appearance|original|preserv/i.test(input.description) }, component_id: device.id,
-    component_selection: input.component_id ? 'user_selected' : 'm1 hypothesis; ask which motor', system, candidates,
+  return { goals: { description: input.description, budget, currency: 'USD', preserve_appearance: preserve, budget_exclusive: exclusive, quantity }, component_id: device.id,
+    component_selection: input.component_id ? 'user_selected' : 'm1 hypothesis; ask which motor', target_confirmed: Boolean(input.component_id), system, candidates,
     status: 'no_solution', recommendation: null, verification: 'unverified', unresolved: warnings,
     progress: ['template_loaded', 'catalog_checked', 'no_supported_verified_solution'], mode: 'deterministic', agent: null }
 }
-type Analysis = ReturnType<typeof analyze>
-const sessions = new Map<string, { id: string; revision: number; analysis: Analysis; history: SystemDesign[] }>()
+export type Analysis = ReturnType<typeof analyze>
+export type Candidate = Analysis['candidates'][number]
+export type Advice = { recommendation: null; explanation: string; missing_info: string[]; evidence_kind: string; execution_id?: string; mode: string }
+export type Session = { design_status: 'digital_preview_unverified'; physical_repair_approved: false; id: string; revision: number; analysis_revision: number; analysis: Analysis; original: SystemDesign; undo_stack: SystemDesign[]; history: { revision: number; action: string; system: SystemDesign }[]; agent: Advice | null; agent_revision: number | null; agent_state: string; agent_error?: string; goals: Record<string, unknown> }
+const sessions = new Map<string, Session>()
+class ApiError extends Error {
+  status: number
+  code: string
+  constructor(status: number, code: string, message: string) { super(message); this.status = status; this.code = code }
+}
+const scripted: Advice = { recommendation: null, explanation: 'SCRIPTED REHEARSAL: compare a digital draft only. TT/N20 nominal voltage mismatch; JGA25 fit and driver remain unknown. Do not buy or install.', missing_info: ['confirmed diagnosis', 'exact driver and mounting evidence'], evidence_kind: 'scripted_advice_not_evidence', mode: 'rehearsal' }
+
+let activeAgents = 0
+async function updateAdvice(session: Session) {
+  activeAgents++
+  const revision = session.revision
+  session.agent_state = 'running'
+  try {
+    const advice = await hermes(session.analysis)
+    if (session.revision !== revision || sessions.get(session.id) !== session) return
+    session.agent = { ...advice, mode: 'live' }
+    session.agent_revision = revision
+    session.agent_state = 'completed'
+  } catch (error) {
+    if (session.revision !== revision) return
+    session.agent_state = 'failed'
+    session.agent_error = error instanceof Error && (error.name === 'TimeoutError' || error.message === 'provider_timeout') ? 'provider_timeout:504' : 'provider_failed:502'
+  } finally { activeAgents-- }
+}
 
 export async function hermes(analysis: Analysis) {
+  if (process.env.FORGE_HERMES_PYTHON && process.env.FORGE_HERMES_SOURCE) {
+    if (!process.env.ANTHROPIC_API_KEY) throw new ApiError(503, 'provider_unavailable', 'ANTHROPIC_API_KEY required for native Hermes')
+    const data = await new Promise<string>((resolve, reject) => {
+      const child = execFile(process.env.FORGE_HERMES_PYTHON!, [fileURLToPath(new URL('../../scripts/consumer-hermes.py', import.meta.url))], { timeout: 45000, maxBuffer: 100000, env: process.env }, (error, stdout) => {
+        if (error) reject(new Error(error.killed ? 'provider_timeout' : 'Hermes native execution failed; inspect sanitized live check'))
+        else resolve(stdout)
+      })
+      child.stdin?.end(JSON.stringify(analysis))
+    })
+    const output = JSON.parse(data)
+    const advice = output.advice
+    if (advice?.recommendation !== null || typeof advice.explanation !== 'string' || !Array.isArray(advice.missing_info) || !advice.missing_info.every((v: unknown) => typeof v === 'string') || !output.execution?.tools?.length) throw new Error('Invalid Hermes structured response')
+    return { ...advice, execution: output.execution, evidence_kind: 'agent_prose_not_engineering_evidence' }
+  }
   const url = process.env.FORGE_HERMES_URL
   const key = process.env.FORGE_HERMES_KEY
   if (!url || !key) throw new Error('Hermes Agent gateway unavailable: configure FORGE_HERMES_URL and FORGE_HERMES_KEY; no model-only fallback')
@@ -62,30 +112,50 @@ export function consumerRepairPlugin(): Plugin {
       if (!path.startsWith('/api/consumer-repair') || path === '/api/consumer-repair/manual') return next()
       const started = performance.now()
       try {
-        if (req.method === 'GET' && path.endsWith('/demo')) return sendJson(res, 200, { template: defaultSystem, mode: 'scripted_request_real_catalog_checks', request: { description: 'My little rover has a broken motor. Repair under $30 and preserve original appearance.' } })
-        if (req.method === 'POST' && path.endsWith('/analyze')) {
+        if (req.method === 'GET' && path === '/api/consumer-repair/demo') return sendJson(res, 200, { template: defaultSystem, mode: 'scripted_request_real_catalog_checks', request: { description: 'My little rover has a broken motor. Repair under $30 and preserve original appearance.' } })
+        if (req.method === 'POST' && path === '/api/consumer-repair/analyze') {
           const input = await readJson(req, 16000)
-          if (input.mode !== undefined && !['live', 'deterministic'].includes(String(input.mode))) throw new Error('Invalid mode')
+          if (input.mode !== undefined && !['live', 'deterministic', 'rehearsal'].includes(String(input.mode))) throw new Error('Invalid mode')
+          if (input.mode === 'live' && !(process.env.FORGE_HERMES_PYTHON && process.env.FORGE_HERMES_SOURCE && process.env.ANTHROPIC_API_KEY) && (!process.env.FORGE_HERMES_URL || !process.env.FORGE_HERMES_KEY)) throw new ApiError(503, 'provider_unavailable', 'Hermes Agent gateway unavailable; configure FORGE_HERMES_URL and FORGE_HERMES_KEY')
+          if (input.mode === 'live' && activeAgents >= 2) throw new ApiError(503, 'provider_busy', 'Two Hermes calls are active; retry later')
           const analysis = analyze(input)
-          const agent = input.mode === 'live' ? await hermes(analysis) : null
           const id = randomUUID()
           if (sessions.size >= 32) sessions.delete(sessions.keys().next().value!)
-          const session = { id, revision: 0, analysis, history: [] }
+          const session: Session = { design_status: 'digital_preview_unverified', physical_repair_approved: false, id, revision: 0, analysis_revision: 0, analysis, original: structuredClone(defaultSystem), history: [], undo_stack: [], agent: input.mode === 'rehearsal' ? structuredClone(scripted) : null, agent_revision: input.mode === 'rehearsal' ? 0 : null, agent_state: input.mode === 'live' ? 'queued' : 'not_requested', goals: input }
           sessions.set(id, session)
-          return sendJson(res, 200, { ...session, agent, elapsed_ms: performance.now() - started })
+          if (input.mode === 'live') void updateAdvice(session)
+          return sendJson(res, input.mode === 'live' ? 202 : 200, { ...session, elapsed_ms: performance.now() - started })
         }
         const [, id, action] = path.match(/^\/api\/consumer-repair\/([^/]+)\/(options|summary|apply|undo)$/) ?? []
         const session = sessions.get(id)
-        if (!session) return sendJson(res, 404, { error: 'Session not found; reload template after restart' })
+        if (!session) return sendJson(res, 404, { error: 'Session not found; reload template after restart', code: 'session_not_found' })
         if (req.method === 'GET' && ['options', 'summary'].includes(action)) return sendJson(res, 200, session)
         if (req.method === 'POST' && ['apply', 'undo'].includes(action)) {
           const input = await readJson(req, 2000)
-          if (input.base_revision !== session.revision) return sendJson(res, 409, { error: 'Stale base_revision; reload summary' })
-          // No current catalog candidate has sufficient evidence to permit a safe substitution.
-          return sendJson(res, 422, { error: action === 'undo' ? 'No applied revision to undo' : 'No eligible substitution; resolve electrical and mechanical evidence first' })
+          if (input.base_revision !== session.revision) return sendJson(res, 409, { error: 'Stale base_revision; reload summary', code: 'stale_revision' })
+          if (session.history.length >= 32) throw new ApiError(422, 'history_limit', 'Session history full; create a new comparison')
+          let system = structuredClone(session.analysis.system)
+          if (action === 'undo') {
+            const previous = session.undo_stack.pop()
+            if (!previous) throw new ApiError(422, 'nothing_to_undo', 'No active draft to undo')
+            system = previous
+          } else {
+            if (input.intent !== 'digital_preview' || input.acknowledge_unverified !== true) throw new ApiError(422, 'acknowledgement_required', 'Physical repair blocked. Explicit digital_preview and acknowledge_unverified=true required')
+            if (!session.analysis.target_confirmed || input.component_id !== session.analysis.component_id) throw new ApiError(422, 'target_required', 'Explicitly select the affected motor during analysis and action')
+            const candidate = session.analysis.candidates.find(c => c.candidate_id === input.candidate_id)
+            if (!candidate) throw new ApiError(422, 'invalid_substitution', 'Candidate is not in this revision analysis')
+            session.undo_stack.push(structuredClone(session.analysis.system))
+            system.devices.find(d => d.id === input.component_id)!.catalogId = candidate.candidate_id
+          }
+          session.history.push({ revision: session.revision, action: action === 'undo' ? 'undo' : 'apply_preview', system: structuredClone(session.analysis.system) })
+          session.revision++
+          session.analysis = analyze(session.goals, system)
+          session.analysis_revision = session.revision
+          session.agent_state = session.agent_state === 'running' ? 'discarded_stale' : 'stale'
+          return sendJson(res, 200, { ...session, design_status: 'digital_preview_unverified', physical_repair_approved: false })
         }
-        sendJson(res, 405, { error: 'Method not allowed' })
-      } catch (error) { sendJson(res, 400, { error: error instanceof Error ? error.message : 'Consumer repair failed' }) }
+        sendJson(res, 405, { error: 'Method not allowed', code: 'method_not_allowed' })
+      } catch (error) { sendJson(res, error instanceof ApiError ? error.status : 400, { error: error instanceof Error ? error.message : 'Consumer repair failed', code: error instanceof ApiError ? error.code : 'invalid_request' }) }
     })
   } }
 }
