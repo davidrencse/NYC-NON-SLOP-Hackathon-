@@ -5,6 +5,7 @@
 import { createGraphGL } from "./research-gl.js";
 import { applySwarmEvent, finishSwarm, resetSwarm } from "./swarm-panel.js";
 import { applyDeckEvent, finishDeck, resetDeck } from "./pipeline-deck.js";
+import { dioramaEvent, dioramaFinish, dioramaStart } from "./diorama-bridge.js";
 
 const $ = id => document.getElementById(id);
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -577,6 +578,7 @@ export function showResearchMap(runMode, runBrief) {
   mode = runMode;
   brief = runBrief ?? "";
   report = null;
+  dioramaStart(runMode, brief);
   events = 0;
   current = "requirements";
   startedAt = performance.now();
@@ -608,6 +610,7 @@ export function showResearchMap(runMode, runBrief) {
 }
 
 export function applyResearchEvent(event) {
+  dioramaEvent(event);
   applyDeckEvent(event);
   if (event.type === "compute") {
     if (event.detail) addLog(event.provider === "modal" ? "modal" : "local", event.event, event.detail);
@@ -674,6 +677,7 @@ export function applyResearchEvent(event) {
 
 export function finishResearchMap(outcome, message, finalReport) {
   if (finalReport) report = finalReport;
+  dioramaFinish(outcome, message, report);
   finishSwarm(outcome);
   finishDeck(outcome, finalReport);
   for (const [id, step] of state) {

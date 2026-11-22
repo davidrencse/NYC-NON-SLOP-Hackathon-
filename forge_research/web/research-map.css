@@ -495,3 +495,13 @@
   .pd-glyph[data-status="running"], .pd-wire.is-live { animation: none; }
 }
 .rg.show-graph .rg-canvas { min-height: 560px; }
+
+/* Cute mode: the 3D crew diorama replaces the graph panels. */
+.rg { position: relative; }
+.rg-cute-btn { margin-left: auto; padding: 4px 10px; border: 1px solid var(--l3); background: var(--k2); color: var(--t0); text-transform: uppercase; letter-spacing: .08em; font-size: 10px; cursor: pointer; }
+.rg-cute-btn:hover { background: var(--k3); }
+.rg-cute-btn[aria-pressed="true"] { background: var(--t0); color: var(--k0); border-color: var(--t0); }
+.rg.rg-cute > :not(.rg-bar):not(.rg-diorama) { display: none !important; }
+.rg-diorama { height: calc(100vh - 110px); min-height: 440px; background: #050505; border-top: 1px solid var(--l2); }
+.rg-diorama iframe { width: 100%; height: 100%; border: 0; display: block; }
+@media (max-width: 700px) { .rg-diorama { height: 70vh; min-height: 360px; } }
