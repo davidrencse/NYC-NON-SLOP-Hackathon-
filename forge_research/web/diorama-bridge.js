@@ -132,6 +132,7 @@ function setOpen(next) {
     view.append(wrap);
   }
   if (frame) frame.parentElement.hidden = !open;
+  if (!open) post({ type: "whip-off" });
   if (open) post({ type: "replay", events: buffer });
   renderHandoff();
   try { localStorage.setItem("forge:cute-mode", open ? "1" : "0"); } catch { /* storage unavailable */ }

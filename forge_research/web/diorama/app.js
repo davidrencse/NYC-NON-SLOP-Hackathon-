@@ -1,4 +1,5 @@
 import * as T from './vendor/three.module.js';
+import { createWhip } from './whip.js';
 
 /* FORGE diorama — research labs → pathway → engineering factory.
    Low-res PSX-style renderer: vertex snapping, nearest-upscaled render target,
@@ -600,7 +601,7 @@ function updateWorld(t, dt) {
     const k = plan.get(c);
     c.root.position.set(k.x, .09, k.z);
     c.yaw = Math.abs(t - (c.lastT ?? t)) > 1 ? k.face : lerpAngle(c.yaw, k.face, 1 - Math.exp(-12 * dt)); c.lastT = t;
-    c.root.rotation.y = c.yaw; applyPose(c, k.pose, t, dt); hold(c, k.carry || null);
+    c.root.rotation.y = c.yaw; applyPose(c, k.pose, whip.pose(c, t, dt), dt); hold(c, k.carry || null);
   });
   shelfBox.visible = t < 4.8; deskBox.visible = t >= 6.25;
   drawBoard((t - 11.25) / 5.75);
@@ -661,6 +662,7 @@ function updateCamera(t, dt) {
   });
   host.append(nav);
 }
+const whip = createWhip(T, scene, camera, canvas, crew, host.querySelector('.scene-nav'));
 let drag = null, moved = false;
 canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; moved = false; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', e => { if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 2) moved = true; yaw -= dx * .005; pitch = clamp(pitch + dy * .004, .28, 1.25); drag = { x: e.clientX, y: e.clientY }; });
@@ -668,7 +670,9 @@ canvas.addEventListener('pointerup', e => {
   drag = null; if (moved) return;
   const r = canvas.getBoundingClientRect(), ray = new T.Raycaster();
   ray.setFromCamera(new T.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
-  const hit = ray.intersectObjects(pickables)[0]; if (hit) showPerson(crew[hit.object.userData.crew]); else { selected = null; $('#employee').hidden = true; }
+  const hits = ray.intersectObjects(pickables);
+  if (whip.click(ray, hits)) return;
+  const hit = hits[0]; if (hit) showPerson(crew[hit.object.userData.crew]); else { selected = null; $('#employee').hidden = true; }
 });
 canvas.addEventListener('pointercancel', () => drag = null);
 canvas.addEventListener('wheel', e => { e.preventDefault(); zoom = clamp(zoom - e.deltaY * .001, .6, 2.6); }, { passive: false });
@@ -695,6 +699,7 @@ function frame(now) {
     parent.postMessage({ source: 'forge-diorama', type: 'story-complete' }, location.origin);
   }
   updateWorld(elapsed, paused ? 0 : dt * speed);
+  whip.update();
   updateCamera(elapsed, dt);
   updateOverlays(elapsed);
   renderer.setRenderTarget(rt); renderer.render(scene, camera);
