@@ -42,7 +42,7 @@ Actual HTTP rehearsal:
 ```sh
 node scripts/consumer-repair-smoke.mjs --launch
 ```
-New run: **32.587 ms flow, 490.624 ms including startup** (local HTTP, not browser/provider latency). Checks voxel asset delivery, engineering-intent analysis, SCRIPTED advice, original catalogs, options, invalid candidate, preview, stale rejection, summary and undo. Revision ends at 2, no physical approval.
+Final acceptance run: **352.606 ms flow, 995.803 ms including startup** (local HTTP, not browser/provider latency). Checks voxel asset delivery, engineering-intent analysis, SCRIPTED advice, original catalogs, options, invalid candidate, preview, stale rejection, summary and undo. Revision ends at 2, no physical approval.
 
 Regression commands:
 ```sh
@@ -53,9 +53,9 @@ node --test tests/test_validation_ui.mjs
 node --check voxel-demo/decision.js
 git diff --check
 ```
-113 Python, 30 TypeScript (one new intent regression), 3 existing UI tests pass. Build passes; lint retains 10 baseline warnings. TS tests must run from `pcb-studio/`: an initial root invocation had two Vite-root resolution failures, corrected without weakening tests. Existing UI tests are not browser proof of this new presentation.
+113 Python, 31 TypeScript (intent and preservation regressions), 3 existing UI tests pass. Build passes; lint retains 10 baseline warnings. TS tests must run from `pcb-studio/`: an initial root invocation had two Vite-root resolution failures, corrected without weakening tests. Existing UI tests are not browser proof of this new presentation.
 
-**Browser unverified:** no browser automation tool was exposed/installed. Selection raycasting, iframe framing, actual visual geometry consequence, responsive layout and advanced-tool navigation require manual browser rehearsal. No screenshot-only or source-only result is claimed as browser proof. Lean unchanged; no new proof success claimed.
+**Actual browser smoke passed:** discovered local Chrome and used native CDP (no added dependency), `node scripts/voxel-browser-smoke.mjs --launch`. Measured **5435.422 ms** including services/browser launch: visible workbench, actual original renderer canvas, explicit m2 selector, sentimental-value toggle, compare, acknowledgement, JGA25 draft apply, renderer revisions 0→1→2, undo, actual JSON plan download/current revision contents, and navigation to full editor with canvas/Research/Export present. No JavaScript runtime exceptions. Screenshots inspected at `/tmp/forge-voxel-browser.png` (restored) and `/tmp/forge-voxel-draft.png` (JGA25 selected); browser also asserts the changed motor label inside the renderer. This exposed and fixed the friend's scene-only CSS hiding the integration panel; original dark styling is retained with a narrow workbench override. Raycast motor selection, mobile layout, every legacy advanced operation and physical geometry correctness were not exhaustively tested. Lean unchanged; no new proof success claimed.
 
 **Reducto remains unresolved:** documented extract endpoint inspected at https://docs.reducto.ai/api-reference/api/sections/extract/operations/extract. Existing live failure has no retained raw provider response, so this change does not guess which objects/units to coerce. Parser still fails closed on malformed field types; facts remain unreviewed with per-fact references, no catalog writes. No paid rerun or success claim. Follow-up needs a bounded sanitized raw-response capture and normalization fixtures; earlier 502 evidence remains intact.
 
@@ -63,14 +63,25 @@ git diff --check
 
 - `README.md`
 - `docs/FORGE_ENGINEERING_HANDOFF.md`
+- `docs/NONSLOP_API_CONTRACT.md`
 - `pcb-studio/server/consumer-repair.ts`
 - `pcb-studio/src/App.tsx`
 - `pcb-studio/src/state/studio.ts`
 - `pcb-studio/tests/consumer-repair.test.ts`
 - `pcb-studio/vite.config.ts`
 - `scripts/consumer-repair-smoke.mjs`
+- `scripts/voxel-browser-smoke.mjs`
+- `voxel-demo/style.css`
 - `voxel-demo/app.js`
 - `voxel-demo/index.html`
 - `voxel-demo/decision.js`
 
-Static `python -m http.server` still supports the friend's animation alone, but is NOT the integrated API/rover demo. Use Vite. Production static hosting, iframe visual polish, live Reducto interoperability and durable session persistence are deferred.
+Static `python -m http.server` still supports the friend's animation alone, but is NOT the integrated API/rover demo. Use Vite. Production static hosting, further iframe visual polish, live Reducto interoperability and durable session persistence are deferred.
+
+## Final acceptance additions
+
+The default voxel flow asks for a rover problem/change brief, validated intent (`repair_change` or `prototype_change`), explicit budget/target and **What are you trying to preserve?** Original appearance, affordability, performance and sentimental value are validated unique API priorities. Each produces deterministic option-specific reasons. Appearance and sentimental priorities favor investigation of original geometry/minimal reversible change; affordability orders by known cost only; performance explicitly cannot be optimized without load curves/stall-current/driver evidence. These are **investigation order, not a physical recommendation**: no eligible physical choice exists and NO remains explicit. Nothing changes catalog ratings, gates or proof status. Changing inputs invalidates preview/export until recomparison. Old repair API requests still work.
+
+Optional animation controls are collapsed in a native details element. Existing orbit/camera/crew inspection remain; Inspect rover is the next useful scene navigation. Evidence/options/advisory settings are progressively disclosed. No extra theme or wow-mode framework.
+
+`POST /api/consumer-repair/{id}/plan` with `{base_revision:number}` returns a revision-bound JSON plan; stale revision is 409 and the request does not mutate history. UI downloads it as `forge-rover-plan-rev-N.json`. It records the selected current draft part vs original, priorities/brief, actual catalog unit and known subtotal, unknown total, full important catalog specs/provenance (including approximate-field flags), alternative rejections, unresolved warnings and concrete inspection/measurement/documentation next steps. It is an investigation plan, not safe installation instructions. HTTP regression checks plan content both after apply and after undo, stale export rejection and original editor/embedded route reachability. No paid inference was repeated; real Reducto failure is not demo evidence.

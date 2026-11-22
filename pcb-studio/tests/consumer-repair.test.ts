@@ -67,3 +67,22 @@ test('prototype intent preserves original ratings, evidence and unresolved gates
   assert.ok(a.candidates.every(c => !c.eligible && c.explanation.hypothesis.includes('digital draft')))
   assert.throws(() => analyze({ description: 'Rover under $30', decision_kind: 'physical_approval' }))
 })
+
+
+test('preservation choices affect investigation reasons but never unsafe eligibility', () => {
+  const base = { description: 'Rover repair', budget: 2, component_id: 'm2', decision_kind: 'repair_change' }
+  for (const priority of ['original_appearance', 'affordability', 'performance', 'sentimental_value']) {
+    const a = analyze({ ...base, priorities: [priority] })
+    assert.equal(a.recommendation, null)
+    assert.ok(a.candidates.every(c => !c.eligible && c.preference_notes.length === 1))
+    const tt = a.candidates.find(c => c.candidate_id === 'tt-motor-148')!
+    const jga = a.candidates.find(c => c.candidate_id === 'jga25-370-12v')!
+    assert.equal(tt.compatibility, 'rejected')
+    assert.equal(jga.within_known_budget, false)
+    if (priority === 'performance') assert.match(tt.preference_notes[0], /impossible.*torque/)
+    if (priority === 'sentimental_value') assert.match(tt.preference_notes[0], /minimal reversible.*original catalog geometry retained/)
+    if (priority === 'original_appearance') assert.match(jga.preference_notes[0], /cannot preserve/)
+    if (priority === 'affordability') assert.match(jga.preference_notes[0], /not confirmed within/)
+  }
+  for (const priorities of [['safety_override'], ['performance','performance'], 'affordability', [null]]) assert.throws(() => analyze({ ...base, priorities }))
+})

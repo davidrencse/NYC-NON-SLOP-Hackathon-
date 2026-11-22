@@ -10,9 +10,22 @@ const warnings = [
   'Full rover remains unverified: board clearance/all_rules failures, disconnected copper islands, thermal model limited to 7.4 V despite 12 V label.',
   'Mounting, shaft, stall current, installation and physical safety require independent verification.',
 ]
+const priorityNames = ['original_appearance', 'affordability', 'performance', 'sentimental_value']
+function preferences(input: Record<string, unknown>) {
+  const priorities = input.priorities ?? []
+  if (!Array.isArray(priorities) || priorities.length > 4 || new Set(priorities).size !== priorities.length || !priorities.every(p => priorityNames.includes(p))) throw new Error('priorities must be unique supported preservation choices')
+  return priorities as string[]
+}
+function preferenceNotes(priorities: string[], original: boolean, price: number | null, budget: boolean | null) {
+  return priorities.map(p => p === 'performance' ? 'Performance: impossible to recommend an improvement without torque/speed under load, stall current and driver evidence.'
+    : p === 'affordability' ? `Affordability: catalog unit ${price === null ? 'unknown' : `$${price}`}; known subtotal ${budget ? 'within' : 'not confirmed within'} budget; delivered total unknown. Lower known cost is investigated first, never safety approval.`
+    : p === 'sentimental_value' ? `Sentimental value: retain the original assembly and prefer minimal reversible investigation${original ? '; original catalog geometry retained' : '; candidate changes original geometry'}. No personal history inferred.`
+    : `Original appearance: ${original ? 'original catalog geometry retained' : 'cannot preserve original catalog geometry with this candidate'}; physical fit remains unverified.`)
+}
 export function analyze(input: Record<string, unknown>, system = structuredClone(defaultSystem)) {
-  if (input.decision_kind !== undefined && input.decision_kind !== 'prototype_change') throw new Error('Unsupported decision_kind')
-  const prototype = input.decision_kind === 'prototype_change'
+  const priorities = preferences(input)
+  if (input.decision_kind !== undefined && !['prototype_change', 'repair_change'].includes(String(input.decision_kind))) throw new Error('Unsupported decision_kind')
+  const prototype = input.decision_kind === 'prototype_change' || input.decision_kind === 'repair_change'
   const unresolved = prototype ? ['Prototype comparison only; no failed component or repair diagnosis is inferred.', ...warnings.slice(1)] : warnings
   if (typeof input.description !== 'string' || !input.description.trim() || input.description.length > 4000) throw new Error('description required (1–4000 characters)')
   if (!/rover/i.test(input.description)) throw new Error('Only the supported Rover R1 template is available')
@@ -20,7 +33,7 @@ export function analyze(input: Record<string, unknown>, system = structuredClone
   const budget = input.budget ?? Number(input.description.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? NaN)
   if (typeof budget !== 'number' || !Number.isFinite(budget) || budget < 0) throw new Error('Provide an explicit nonnegative USD budget')
   if (input.preserve_appearance !== undefined && typeof input.preserve_appearance !== 'boolean') throw new Error('preserve_appearance must be boolean')
-  const preserve = input.preserve_appearance ?? /appearance|original|preserv/i.test(input.description)
+  const preserve = input.preserve_appearance ?? (priorities.includes('original_appearance') || /appearance|original|preserv/i.test(input.description))
   const exclusive = input.budget_exclusive ?? /under|below|less than/i.test(input.description)
   if (typeof exclusive !== 'boolean') throw new Error('budget_exclusive must be boolean')
   const quantity = input.quantity ?? 1
@@ -39,13 +52,28 @@ export function analyze(input: Record<string, unknown>, system = structuredClone
       explanation: { hypothesis: prototype ? 'Explore a component change in the original rover digital draft; physical suitability remains unknown' : 'Replacement may help only if motor failure is independently confirmed', priorities: ['budget', ...(preserve ? ['preserve appearance'] : [])], reasons: a.reasons.map(r => r.startsWith('Runs on') ? `Nominal rail in catalog range only; PWM/driver conditions unknown` : r), rejected: [...a.warnings, ...(electrical ? [] : [`${device.rail} V rail exceeds supported voltage range`])], alternative_preferable: 'Same part preserves nominal geometry; other motors may require mounts and drivetrain changes' },
       evidence: [{ kind: 'curated_catalog', source: 'src/data/catalog/peripherals.ts', component_id: a.item.id }], unresolved }
   })
-  return { goals: { description: input.description, budget, currency: 'USD', preserve_appearance: preserve, budget_exclusive: exclusive, quantity }, component_id: device.id,
-    component_selection: input.component_id ? 'user_selected' : 'm1 hypothesis; ask which motor', target_confirmed: Boolean(input.component_id), system, candidates,
+  const comparison = candidates.map(c => {
+    const original = c.candidate_id === 'tt-motor-148'
+    const score = priorities.reduce((n, p) => n + (p === 'affordability' ? c.known_cost ?? 1000000 : ['sentimental_value', 'original_appearance'].includes(p) ? original ? 0 : 100 : 0), 0)
+    return { ...c, preference_notes: preferenceNotes(priorities, original, c.known_cost, c.within_known_budget), investigation_score: score }
+  }).sort((a, b) => a.investigation_score - b.investigation_score)
+  return { priorities, comparison_purpose: 'investigation_order_not_physical_recommendation', next_steps: ['Do not purchase or install from this preview. Inspect wiring, power and driver before diagnosing a failed motor.', 'Measure motor rail under load and obtain exact driver peak-current/PWM ratings.', 'Obtain manufacturer motor torque/speed curves, stall current, shaft and mount drawings; verify fit and original appearance.', 'Resolve full-board clearance, disconnected copper and thermal limitations; obtain shipping/tax and mounting costs, then reassess.'], goals: { description: input.description, budget, currency: 'USD', preserve_appearance: preserve, budget_exclusive: exclusive, quantity }, component_id: device.id,
+    component_selection: input.component_id ? 'user_selected' : 'm1 hypothesis; ask which motor', target_confirmed: Boolean(input.component_id), system, candidates: comparison,
     status: 'no_solution', recommendation: null, verification: 'unverified', unresolved,
     progress: ['template_loaded', 'catalog_checked', 'no_supported_verified_solution'], mode: 'deterministic', agent: null }
 }
 export type Analysis = ReturnType<typeof analyze>
 export type Candidate = Analysis['candidates'][number]
+export function repairPlan(session: Session) {
+  const a = session.analysis
+  const selectedId = a.system.devices.find(d => d.id === a.component_id)!.catalogId
+  const selected = a.candidates.find(c => c.candidate_id === selectedId)!
+  return { title: 'Rover R1 — investigation and digital change plan, not installation instructions', revision: session.revision, analysis_revision: session.analysis_revision, intent: session.goals.decision_kind ?? 'legacy_repair', description: a.goals.description, goals: a.goals, priorities: a.priorities, component_id: a.component_id,
+    physical_recommendation: null, decision: 'NO verified physical replacement; incompatible, insufficiently documented or total cost unknown.', design_status: session.design_status,
+    original_part: session.original.devices.find(d => d.id === a.component_id)!.catalogId, selected_draft_part: selectedId, selected_parts: [{ id: selectedId, cost: selected.cost, price_kind: selected.price_kind, specs: selected.specs, evidence: selected.evidence }],
+    alternatives: a.candidates.map(c => ({ id: c.candidate_id, compatibility: c.compatibility, physical_eligible: c.eligible, known_subtotal: c.cost.known_subtotal, within_known_budget: c.within_known_budget, reasons: c.explanation, preferences: c.preference_notes })),
+    warnings: a.unresolved, next_steps: a.next_steps, history: session.history.map(h => ({ revision: h.revision, action: h.action })), agent_advice_is_not_evidence: true }
+}
 export type Advice = { recommendation: null; explanation: string; missing_info: string[]; evidence_kind: string; execution_id?: string; mode: string }
 export type Session = { design_status: 'digital_preview_unverified'; physical_repair_approved: false; id: string; revision: number; analysis_revision: number; analysis: Analysis; original: SystemDesign; undo_stack: SystemDesign[]; history: { revision: number; action: string; system: SystemDesign }[]; agent: Advice | null; agent_revision: number | null; agent_state: string; agent_error?: string; goals: Record<string, unknown> }
 const sessions = new Map<string, Session>()
@@ -129,13 +157,14 @@ export function consumerRepairPlugin(): Plugin {
           if (input.mode === 'live') void updateAdvice(session)
           return sendJson(res, input.mode === 'live' ? 202 : 200, { ...session, elapsed_ms: performance.now() - started })
         }
-        const [, id, action] = path.match(/^\/api\/consumer-repair\/([^/]+)\/(options|summary|apply|undo)$/) ?? []
+        const [, id, action] = path.match(/^\/api\/consumer-repair\/([^/]+)\/(options|summary|apply|undo|plan)$/) ?? []
         const session = sessions.get(id)
         if (!session) return sendJson(res, 404, { error: 'Session not found; reload template after restart', code: 'session_not_found' })
         if (req.method === 'GET' && ['options', 'summary'].includes(action)) return sendJson(res, 200, session)
-        if (req.method === 'POST' && ['apply', 'undo'].includes(action)) {
+        if (req.method === 'POST' && ['apply', 'undo', 'plan'].includes(action)) {
           const input = await readJson(req, 2000)
           if (input.base_revision !== session.revision) return sendJson(res, 409, { error: 'Stale base_revision; reload summary', code: 'stale_revision' })
+          if (action === 'plan') return sendJson(res, 200, repairPlan(session))
           if (session.history.length >= 32) throw new ApiError(422, 'history_limit', 'Session history full; create a new comparison')
           let system = structuredClone(session.analysis.system)
           if (action === 'undo') {
