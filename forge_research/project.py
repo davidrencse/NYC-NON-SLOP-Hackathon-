@@ -78,7 +78,7 @@ class ProjectView(BaseModel):
     project_id: UUID
     revision: int
     parent_revision: int | None = None
-    mode: Literal["offline", "gemini", "nous"]
+    mode: Literal["offline", "claude", "gemini", "nous"]
     model: str
     brief: str
     catalog_snapshot: dict[str, Part]
@@ -435,7 +435,7 @@ async def evaluate_and_commit_revision(
     next_spec: DeviceSpecification,
     *,
     label: str,
-    actor: Literal["user", "gemini", "nous", "offline_fixture", "shop_mcp"] = "user",
+    actor: Literal["user", "claude", "gemini", "nous", "offline_fixture", "shop_mcp"] = "user",
     force_verify: bool = False,
     force_geometry: bool = False,
 ) -> RevisionRecord:

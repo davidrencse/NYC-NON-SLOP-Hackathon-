@@ -33,7 +33,7 @@ async function readGeneratedBoard(
 ): Promise<Board> {
   const res = await fetch(opts.endpoint ?? '/api/generate', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/x-ndjson', ...keyHeader() },
+    headers: { 'content-type': 'application/json', accept: 'application/x-ndjson', ...authHeaders() },
     body: JSON.stringify({ prompt, constraints: opts.constraints, research: generation.reference }),
     signal: opts.signal,
   })
@@ -105,9 +105,9 @@ async function readGeneratedBoard(
   return board
 }
 
-const KEY_STORE = 'forge.geminiKey'
+const KEY_STORE = 'forge.claudeKey'
 
-/** The Gemini API key the user entered, kept in this browser only. */
+/** The Claude API key the user entered, kept in this browser only. */
 export function storedGeminiKey(): string {
   try {
     return localStorage.getItem(KEY_STORE) ?? ''
@@ -125,7 +125,7 @@ export function storeGeminiKey(key: string) {
   }
 }
 
-function keyHeader(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   const key = storedGeminiKey().trim()
-  return key ? { 'x-gemini-key': key } : {}
+  return key.startsWith('sk-ant-') ? { 'x-claude-key': key } : {}
 }

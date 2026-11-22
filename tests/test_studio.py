@@ -19,7 +19,7 @@ SENSOR = "myoware-2-dev-27924"
 STALE = "This prototype changed. Reload your report before editing it."
 UNSUPPORTED_WRIST = "Enter a supported wrist size."
 LIVE_UNAVAILABLE = (
-    "Live research needs Gemini configured on the server. You can run the offline sample."
+    "Live research needs a Claude API key (ANTHROPIC_API_KEY) on the server. You can run the offline sample."
 )
 
 
@@ -51,7 +51,7 @@ class StudioApiTests(unittest.TestCase):
         # Blank credentials so a developer shell cannot turn a test into a live call.
         env = patch.dict(
             os.environ,
-            {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": "", "FORGE_GEMINI_MODEL": "", "NOUS_API_KEY": ""},
+            {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": "", "FORGE_GEMINI_MODEL": "", "NOUS_API_KEY": "", "ANTHROPIC_API_KEY": ""},
         )
         env.start()
         self.addCleanup(env.stop)

@@ -483,8 +483,8 @@ def _cache_path(sha: str) -> Path:
 async def _independent_read(part: Part, doc: BundleDocument, data: bytes, sha: str) -> IndependentRead:
     # Reader caches are independent of Reducto and invalidated by model, prompt,
     # subject or schema changes. A missing credential never reuses a prior approval.
-    if not (os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip()):
-        raise ReviewUnavailable("Gemini key missing; independent verification unavailable.")
+    if not os.getenv("ANTHROPIC_API_KEY", "").strip():
+        raise ReviewUnavailable("Claude key missing; independent verification unavailable.")
     subject = doc.subject or part.sku
     manufacturer = doc.manufacturer or part.manufacturer
     context = f"{sha}|{subject}|{manufacturer}|{review_model()}|{REVIEW_VERSION}|{SCHEMA_VERSION}"
@@ -825,7 +825,7 @@ class EvidenceRegistry:
 
     CONFIG_KEYS = (
         "REDUCTO_API_KEY", "REDUCTO_BASE_URL", "GEMINI_API_KEY", "GOOGLE_API_KEY",
-        "FORGE_GEMINI_MODEL", "FORGE_DATASHEET_REVIEW_MODEL",
+        "FORGE_GEMINI_MODEL", "FORGE_DATASHEET_REVIEW_MODEL", "ANTHROPIC_API_KEY", "FORGE_CLAUDE_MODEL",
     )
 
     def _refresh_configuration(self) -> None:

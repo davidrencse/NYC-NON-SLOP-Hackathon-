@@ -213,7 +213,7 @@ function body(ev, railMv) {
     "ev-foot"
   );
   const verification = el("div", ev.design_ready
-    ? "Reducto and Gemini agree on critical specs. Source review is still recommended."
+    ? "Reducto and Claude agree on critical specs. Source review is still recommended."
     : `Build blocked: ${(ev.blocking_reasons || []).join(" ") || "Critical evidence is unverified."}`, "ev-foot");
   return [...nodes.filter(Boolean), foot, verification];
 }
@@ -321,7 +321,7 @@ export function renderEvidenceBundle(container, part, railMv) {
         } catch {
           link = el("span", doc.title || doc.url);
         }
-        const meta = [doc.scope === "electrical" ? "electrical only" : "full", doc.pages ? `${doc.pages} pp` : null, doc.revision, doc.cached ? "cached" : null, doc.error, doc.verification_error, doc.independent_read ? `Gemini identity: ${doc.independent_read.identity_matches ? "matched" : "unresolved"}` : "No independent read"]
+        const meta = [doc.scope === "electrical" ? "electrical only" : "full", doc.pages ? `${doc.pages} pp` : null, doc.revision, doc.cached ? "cached" : null, doc.error, doc.verification_error, doc.independent_read ? `Claude identity: ${doc.independent_read.identity_matches ? "matched" : "unresolved"}` : "No independent read"]
           .filter(Boolean)
           .join(" · ");
         li.append(link, el("small", meta));
@@ -340,7 +340,7 @@ export function renderEvidenceBundle(container, part, railMv) {
           el("small", [fact.page ? `p.${fact.page}` : null, fact.corroborated_by ? `+${fact.corroborated_by} docs agree` : null, fact.note, fact.verification_reason].filter(Boolean).join(" · "))
         );
         row.title = [fact.snippet, fact.conditions ? `Conditions: ${fact.conditions}` : null,
-          fact.independent ? `Gemini p.${fact.independent.page}: ${fact.independent.quote}` : null,
+          fact.independent ? `Claude p.${fact.independent.page}: ${fact.independent.quote}` : null,
           fact.verification_reason].filter(Boolean).join("\n");
         table.append(row);
       }

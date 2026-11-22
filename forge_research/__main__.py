@@ -4,7 +4,6 @@ import os
 import sys
 
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
-from google.genai.errors import APIError
 
 from .catalog import ResearchError
 from .offline import DEMO_BRIEF, DemoModel
@@ -17,29 +16,31 @@ def main() -> int:
     source.add_argument(
         "--offline", action="store_true", help="Run the scripted wristband fixture."
     )
-    source.add_argument("--brief", help="Send a device brief to the live Gemini workflow.")
+    source.add_argument("--brief", help="Send a device brief to the live Claude workflow.")
     args = parser.parse_args()
 
     if args.offline:
         brief, model, mode = DEMO_BRIEF, DemoModel(), "offline"
     else:
-        brief, model, mode = args.brief, os.getenv("FORGE_GEMINI_MODEL", "").strip(), "gemini"
-        if not model.startswith("gemini-"):
-            parser.error(
-                "Set FORGE_GEMINI_MODEL to the Gemini model ID enabled for your account."
-            )
-        if not (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")):
-            parser.error("Set GEMINI_API_KEY or GOOGLE_API_KEY for live Gemini runs.")
-        os.environ["GOOGLE_GENAI_USE_ENTERPRISE"] = "false"
-        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "false"
+        from .providers.llm import live_model
+
+        live = live_model()
+        if live is None:
+            parser.error("Set ANTHROPIC_API_KEY for live Claude runs.")
+        brief, model, mode = args.brief, live.adk_model(), live.mode
 
     try:
         report = asyncio.run(run_research(brief, model, mode=mode))
     except ResearchError as error:
         print(f"FORGE research failed. {error}", file=sys.stderr)
         return 1
-    except APIError as error:
-        print(f"Gemini request failed (API status {error.code}).", file=sys.stderr)
+    except Exception as error:
+        from .providers.llm import provider_error_status
+
+        status = provider_error_status(error)
+        if status is None:
+            raise
+        print(f"Model provider request failed (API status {status}).", file=sys.stderr)
         return 1
     except (TimeoutError, LlmCallsLimitExceededError):
         print(

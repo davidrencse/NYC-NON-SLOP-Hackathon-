@@ -1,10 +1,10 @@
-"""AI CAD: Gemini writes CadQuery code for a product body, sees a render, revises.
+"""AI CAD: Claude writes CadQuery code for a product body, sees a render, revises.
 
 Flow (runs inside the Modal worker, CPU only, no Blender):
-  1. Gemini writes ``build()`` in CadQuery, returning named, coloured parts.
+  1. Claude writes ``build()`` in CadQuery, returning named, coloured parts.
   2. The code runs in a separate Python process with a timeout; parts come back
-     as BREP files. A crash or timeout is sent back to Gemini to fix.
-  3. The parts are rendered to a PNG from two angles and shown to Gemini, which
+     as BREP files. A crash or timeout is sent back to Claude to fix.
+  3. The parts are rendered to a PNG from two angles and shown to Claude, which
      criticises the look and returns improved code (``rounds`` times).
 
 Code is written Z-up (CadQuery's natural frame); product.py rotates it to the
@@ -23,7 +23,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
 MATS = ("metal", "plastic", "rubber", "carbon", "clear", "glass", "fabric", "wood")
 
 GUIDE = """You are a senior industrial designer and CadQuery expert. Write CadQuery (cadquery 2.8) Python that models the
@@ -123,46 +122,23 @@ def _parse(text: str) -> dict:
     return {"code": code.strip(), "name": name.group(1).strip() if name else "", "notes": notes.group(1).strip() if notes else ""}
 
 
-def _gemini(api_key: str, model: str, parts: list[dict], *, timeout: float = 600) -> tuple[dict, dict]:
-    """Streamed call: a long code answer keeps the connection alive chunk by chunk."""
+def _ask(api_key: str, model: str, content: list[dict], *, timeout: float = 600) -> tuple[dict, dict]:
+    """Streamed Claude call: a long code answer keeps the connection alive chunk by chunk."""
     import httpx
 
-    body = {
-        "systemInstruction": {"parts": [{"text": GUIDE + ANSWER}]},
-        "contents": [{"role": "user", "parts": parts}],
-        # Stream thought summaries too: they keep bytes flowing while the model
-        # reasons, so a long think does not trip the read timeout. They are
-        # dropped from the answer below.
-        "generationConfig": {"temperature": 0.5, "thinkingConfig": {"includeThoughts": True}},
-    }
+    from modal_workers import claude
+
     last = None
     for _ in range(2):
-        text, usage = [], {}
         try:
-            with httpx.stream(
-                "POST", f"{ENDPOINT}/{model}:streamGenerateContent?alt=sse",
-                headers={"x-goog-api-key": api_key, "content-type": "application/json"},
-                json=body, timeout=httpx.Timeout(300, connect=20),
-            ) as response:
-                if response.status_code != 200:
-                    raise RuntimeError(f"Gemini {response.status_code}: {response.read().decode()[:300]}")
-                started = time.monotonic()
-                for line in response.iter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    chunk = json.loads(line[5:])
-                    for cand in chunk.get("candidates", []):
-                        text += [p.get("text", "") for p in cand.get("content", {}).get("parts", []) if not p.get("thought")]
-                    usage = chunk.get("usageMetadata", usage)
-                    if time.monotonic() - started > timeout:
-                        raise RuntimeError(f"Gemini answer took longer than {timeout:.0f} s.")
-            answer = _parse("".join(text))
+            text, usage = claude.stream(api_key, model, GUIDE + ANSWER, content, timeout=timeout)
+            answer = _parse(text)
             if "def build" not in answer["code"]:
-                raise RuntimeError("Gemini answer had no build() function.")
-            return answer, {"prompt": usage.get("promptTokenCount") or 0, "output": usage.get("candidatesTokenCount") or 0}
+                raise RuntimeError("Claude answer had no build() function.")
+            return answer, usage
         except (httpx.TransportError, RuntimeError) as error:
             last = error
-    raise RuntimeError(f"Gemini code request failed: {last}")
+    raise RuntimeError(f"Claude code request failed: {last}")
 
 
 def run_code(code: str, *, timeout: float = 120) -> dict[str, Any]:
@@ -215,13 +191,13 @@ def design(
     started = time.monotonic()
     usage = {"prompt": 0, "output": 0}
     history: list[dict] = []
-    ask = [{"text": f"Product brief: {brief.strip()[:2000]}\n\nElectronics inside:\n{device_text(system)}"}]
+    ask = [{"type": "text", "text": f"Product brief: {brief.strip()[:2000]}\n\nElectronics inside:\n{device_text(system)}"}]
     best = None
     attempts = 0
     while attempts < 3 + rounds * 2:
         attempts += 1
         try:
-            answer, used = _gemini(api_key, model, ask)
+            answer, used = _ask(api_key, model, ask)
         except RuntimeError:
             if best is not None:
                 break  # keep the working design we already have
@@ -236,7 +212,7 @@ def design(
             step["error"] = result["error"][-600:]
             history.append(step)
             log(f"  attempt {attempts}: code failed ({run_s}s): {result['error'].strip().splitlines()[-1][:160]}")
-            ask = [ask[0], {"text": f"Your previous code:\n```python\n{code}\n```\nIt failed:\n{result['error']}\nFix it and return the full corrected code."}]
+            ask = [ask[0], {"type": "text", "text": f"Your previous code:\n```python\n{code}\n```\nIt failed:\n{result['error']}\nFix it and return the full corrected code."}]
             continue
         step["parts"] = len(result["parts"])
         history.append(step)
@@ -249,12 +225,12 @@ def design(
         step["reviewed"] = True
         ask = [
             ask[0],
-            {"text": f"Your current code:\n```python\n{code}\n```\nThe image shows it rendered (front-left and rear-right views). "
+            {"type": "text", "text": f"Your current code:\n```python\n{code}\n```\nThe image shows it rendered (front-left and rear-right views). "
                      "Critique it like a product designer: what makes it look fake, blocky, wrongly proportioned or "
                      "unrecognisable, what details are missing? Then return the full improved code that fixes all of it. "
                      "Keep what already works."},
-            {"inline_data": {"mime_type": "image/png", "data": base64.b64encode(png).decode()}},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64.b64encode(png).decode()}},
         ]
     if best is None:
-        raise RuntimeError("Gemini could not produce working CadQuery code: " + (history[-1].get("error", "")[-300:] if history else ""))
+        raise RuntimeError("Claude could not produce working CadQuery code: " + (history[-1].get("error", "")[-300:] if history else ""))
     return {**best, "model": model, "ms": int((time.monotonic() - started) * 1000), "usage": usage, "history": history}

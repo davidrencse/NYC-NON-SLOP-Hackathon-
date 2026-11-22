@@ -263,7 +263,7 @@ def apply_repair_patch(
 
 def choose_repair_model(
     mode: Literal["live", "sample"], configured_gemini_model: str | None
-) -> tuple[str | BaseLlm, Literal["gemini", "offline_fixture"]]:
+) -> tuple[str | BaseLlm, Literal["claude", "gemini", "offline_fixture"]]:
     if mode == "live":
         if not configured_gemini_model:
             raise ResearchError(

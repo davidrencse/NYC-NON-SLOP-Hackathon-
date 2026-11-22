@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Provider = Literal["nous", "gemini", "reducto", "pangram", "modal"]
+Provider = Literal["claude", "nous", "gemini", "reducto", "pangram", "modal"]
 
 
 class UsageEntry(BaseModel):

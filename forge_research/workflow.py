@@ -56,7 +56,7 @@ async def run_research(
     brief: str,
     model: str | BaseLlm,
     *,
-    mode: Literal["offline", "gemini", "nous"],
+    mode: Literal["offline", "claude", "gemini", "nous"],
     progress: Progress | None = None,
 ) -> ResearchReport:
     brief = brief.strip()
@@ -66,7 +66,7 @@ async def run_research(
     evidence: dict[str, Part] = {}
     looked_up_roles: set[PartRole] = set()
     trace: list[TraceEvent] = []
-    provider_error: APIError | None = None
+    provider_error: Exception | None = None
 
     def start_agent(stage: str) -> Callable[[CallbackContext], None]:
         def callback(callback_context: CallbackContext) -> None:
@@ -79,7 +79,9 @@ async def run_research(
         callback_context: CallbackContext, llm_request: LlmRequest, error: Exception
     ) -> None:
         nonlocal provider_error
-        if isinstance(error, APIError):
+        from .providers.llm import provider_error_status
+
+        if provider_error_status(error) is not None:
             provider_error = error
 
     def lookup_parts(role: PartRole) -> dict:

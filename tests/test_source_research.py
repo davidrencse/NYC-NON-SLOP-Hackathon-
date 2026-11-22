@@ -76,7 +76,7 @@ class PolicyTests(unittest.TestCase):
 
 class SourceLoopTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        env = patch.dict(os.environ, {"REDUCTO_API_KEY": "fake", "PANGRAM_API_KEY": "fake", "GEMINI_API_KEY": "fake"})
+        env = patch.dict(os.environ, {"REDUCTO_API_KEY": "fake", "PANGRAM_API_KEY": "fake", "GEMINI_API_KEY": "fake", "ANTHROPIC_API_KEY": "fake"})
         env.start(); self.addCleanup(env.stop)
         self.bad = ds.BundleDocument(url="https://manufacturer.test/ai.pdf", title="Excluded source")
         self.good = ds.BundleDocument(url="https://manufacturer.test/original.pdf", title="Original source")
@@ -154,14 +154,15 @@ class SourceLoopTests(unittest.IsolatedAsyncioTestCase):
 
 class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_three_specialists_have_search_tools_and_return_pdf_candidates(self):
-        generate = AsyncMock(return_value=SimpleNamespace(text=f"{PART.id} | https://manufacturer.test/source.pdf | Manufacturer guide", candidates=[]))
+        text = f"{PART.id} | https://manufacturer.test/source.pdf | Manufacturer guide"
+        create = AsyncMock(return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text=text)], usage=SimpleNamespace(input_tokens=1, output_tokens=1)))
         client = MagicMock()
-        client.aio.__aenter__ = AsyncMock(return_value=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
-        client.aio.__aexit__ = AsyncMock(return_value=False)
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "fake"}), patch.object(source_discovery.genai, "Client", return_value=client):
+        client.__aenter__ = AsyncMock(return_value=SimpleNamespace(messages=SimpleNamespace(create=create)))
+        client.__aexit__ = AsyncMock(return_value=False)
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake"}), patch.object(source_discovery, "claude_client", return_value=client):
             docs = await source_discovery.discover_documents("brief", [PART], ["https://excluded.test/x.pdf"], round_number=2)
-        self.assertEqual(generate.call_count, 3)
+        self.assertEqual(create.call_count, 3)
         self.assertEqual(len(docs), 1)
-        for call in generate.call_args_list:
-            self.assertIsNotNone(call.kwargs["config"].tools[0].google_search)
-            self.assertIn("https://excluded.test/x.pdf", call.kwargs["contents"])
+        for call in create.call_args_list:
+            self.assertEqual(call.kwargs["tools"][0]["type"], "web_search_20260209")
+            self.assertIn("https://excluded.test/x.pdf", str(call.kwargs["messages"]))

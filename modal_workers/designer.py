@@ -1,4 +1,4 @@
-"""AI body design: Gemini models a product's mechanical body as primitive solids.
+"""AI body design: Claude models a product's mechanical body as primitive solids.
 
 Python twin of pcb-studio/server/chassis.ts (same prompt, schema and cleaning),
 so the Modal worker can design and build a product in one job. The result goes
@@ -17,7 +17,6 @@ import tempfile
 import time
 from typing import Any
 
-ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
 SHAPES = ("box", "cyl", "ring", "sphere")
 MATS = ("metal", "plastic", "rubber", "carbon", "clear")
 
@@ -31,6 +30,10 @@ Shapes:
 - sphere: size = [radius, 0, 0]
 rot is [x, y, z] in degrees. Set spin true only for parts that rotate in use (rotors, wheels, fans).
 Model what makes the product recognisable: frame, shell walls, arms, wheels, legs, lenses, straps, handles, nozzles. Prefer 12 to 32 parts, maximum 60. Omit unnecessary detail. Keep everything within 400 mm of the origin."""
+JSON_ANSWER = """
+
+Answer with one JSON object and nothing else:
+{"name": "<product name>", "parts": [{"label": "...", "shape": "box|cyl|ring|sphere", "size": [x, y, z], "pos": [x, y, z], "rot": [x, y, z], "mat": "metal|plastic|rubber|carbon|clear", "spin": false}]}"""
 
 _NUM3 = {"type": "ARRAY", "items": {"type": "NUMBER"}, "minItems": 3, "maxItems": 3}
 SCHEMA = {
@@ -105,20 +108,16 @@ def layout_text(system: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def design_body(brief: str, system: dict[str, Any], *, api_key: str, model: str, timeout: float = 20, cache_dir: Path | None = None) -> dict[str, Any]:
-    """Ask Gemini for the body. Returns {parts, name, model, ms, usage}."""
-    import httpx
+def design_body(brief: str, system: dict[str, Any], *, api_key: str, model: str, timeout: float = 60, cache_dir: Path | None = None) -> dict[str, Any]:
+    """Ask Claude for the body. Returns {parts, name, model, ms, usage}."""
+    from modal_workers import claude
 
-    body = {
-        "systemInstruction": {"parts": [{"text": SYSTEM}]},
-        "contents": [{"role": "user", "parts": [{"text": f"Product: {brief.strip()[:2000]}\n\n{layout_text(system)[:3000]}"}]}],
-        "generationConfig": {"responseMimeType": "application/json", "responseSchema": SCHEMA, "temperature": 0.4},
-    }
+    prompt = f"Product: {brief.strip()[:2000]}\n\n{layout_text(system)[:3000]}"
     # Look up the design BEFORE inference; caching only the built mesh still pays
-    # Gemini latency on every request (and stochastic answers miss that cache).
+    # model latency on every request (and stochastic answers miss that cache).
     cache_path = None
     if cache_dir is not None:
-        key = hashlib.sha256(json.dumps([model, body, api_key], sort_keys=True).encode()).hexdigest()
+        key = hashlib.sha256(json.dumps([model, SYSTEM, prompt, api_key], sort_keys=True).encode()).hexdigest()
         cache_path = cache_dir / f"{key}.json"
         try:
             cached = json.loads(cache_path.read_text())
@@ -127,24 +126,17 @@ def design_body(brief: str, system: dict[str, Any], *, api_key: str, model: str,
         except (OSError, ValueError, TypeError):
             pass
     started = time.monotonic()
-    response = httpx.post(
-        f"{ENDPOINT}/{model}:generateContent",
-        headers={"x-goog-api-key": api_key, "content-type": "application/json"},
-        json=body,
-        timeout=timeout,
-    )
-    if response.status_code != 200:
-        raise RuntimeError(f"Gemini {response.status_code}: {response.text[:300]}")
-    data = response.json()
-    text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
-    raw = json.loads(text)
-    usage = data.get("usageMetadata", {})
+    text, usage = claude.complete(api_key, model, SYSTEM + JSON_ANSWER, [claude.text_block(prompt)], max_tokens=8000, timeout=timeout)
+    try:
+        raw = claude.extract_json(text)
+    except ValueError:
+        raw = {}
     result = {
         "name": raw.get("name") if isinstance(raw, dict) else None,
         "parts": clean_parts(raw),
         "model": model,
         "ms": int((time.monotonic() - started) * 1000),
-        "usage": {"prompt_tokens": usage.get("promptTokenCount"), "output_tokens": usage.get("candidatesTokenCount")},
+        "usage": {"prompt_tokens": usage["prompt"], "output_tokens": usage["output"]},
         "cache_hit": False,
     }
     if cache_path is not None and result["parts"]:
@@ -158,4 +150,6 @@ def design_body(brief: str, system: dict[str, Any], *, api_key: str, model: str,
 
 
 def default_model() -> str:
-    return os.environ.get("FORGE_BODY_MODEL") or os.environ.get("GEMINI_FAST_MODEL") or "gemini-4-carbon"
+    from modal_workers import claude
+
+    return claude.default_model()

@@ -50,7 +50,7 @@ function render() {
   root.dataset.status = swarm.status;
   const done = swarm.agents.filter(a => ["completed", "failed", "skipped"].includes(a.status)).length;
   const running = swarm.agents.filter(a => a.status === "running").length;
-  $("sw-engine").textContent = swarm.engine === "gemini" ? "Gemini API" : swarm.engine === "offline" ? "offline replay" : "—";
+  $("sw-engine").textContent = swarm.engine === "claude" ? "Claude API" : swarm.engine === "gemini" ? "Gemini API" : swarm.engine === "offline" ? "offline replay" : "—";
   $("sw-model").textContent = swarm.model ?? (swarm.engine === "offline" ? "no model" : "—");
   $("sw-progress").textContent = `${done}/${swarm.agents.length || 4}`;
   $("sw-running").textContent = String(running);
@@ -95,7 +95,7 @@ export function applySwarmEvent(event) {
     Object.assign(swarm, { engine: event.engine, model: event.model, status: "running", startedAt: performance.now(), note: event.note ?? null, error: null });
     swarm.agents = (event.agents ?? []).map(a => ({ role: a.id, name: a.name, focus: a.focus, status: "pending" }));
     tick();
-    return ["swarm", `${event.engine === "gemini" ? "Gemini" : "Offline"} swarm dispatched ${swarm.agents.length} specialists${event.model ? " on " + event.model : ""}.`];
+    return ["swarm", `${event.engine === "claude" ? "Claude" : event.engine === "gemini" ? "Gemini" : "Offline"} swarm dispatched ${swarm.agents.length} specialists${event.model ? " on " + event.model : ""}.`];
   }
   if (event.event === "agent") {
     const agent = swarm.agents[event.index];

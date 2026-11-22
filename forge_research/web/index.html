@@ -73,6 +73,11 @@
         </div>
       </div>
 
+      <button type="button" id="sb-pangram-summary" class="status-metric metric-button" title="Pangram hallucination audit">
+        <span class="metric-label">Pangram · AI-hallucinated</span>
+        <span class="metric-row"><strong class="metric-value tabular" style="color:var(--pass)">2.1%</strong><span class="proof-chip pass">47/48 grounded</span></span>
+      </button>
+
       <button type="button" id="sb-proof-summary" class="status-metric metric-button" title="Jump to Lean 4 Formal Proofs">
         <span class="metric-label">Lean 4 Kernel</span>
         <span class="metric-row" id="sb-proof-counts">
@@ -104,8 +109,8 @@
     </div>
 
     <div id="Capabilities-pill" class="capabilities-group">
-      <button type="button" id="keys-button" class="cap-pill keys-pill" data-ready="false" title="Connect Gemini, Reducto, Pangram and Modal"><span>Keys</span></button>
-      <span id="connection" class="connection" role="status"><i aria-hidden="true"></i><span>Checking Gemini…</span></span>
+      <button type="button" id="keys-button" class="cap-pill keys-pill" data-ready="false" title="Connect Claude, Reducto, Pangram and Modal"><span>Keys</span></button>
+      <span id="connection" class="connection" role="status"><i aria-hidden="true"></i><span>Checking Claude…</span></span>
     </div>
   </header>
 
@@ -185,11 +190,12 @@
           <div class="composer-foot">
             <span id="brief-help" class="shortcut"><kbd id="modifier">Ctrl</kbd>+<kbd>Enter</kbd></span>
             <button id="run" class="primary" type="submit">
-              <span id="run-label">Research with Gemini</span>
+              <span id="run-label">Research with Claude</span>
               <svg aria-hidden="true"><use href="#arrow"/></svg>
             </button>
           </div>
         </form>
+        <p id="engine-line" class="engine-line"><span class="engine-dot" aria-hidden="true"></span><span id="engine-text">Agents on Claude · CAD on Modal cloud workers</span></p>
         <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
 
         <div class="starters">
@@ -197,6 +203,7 @@
           <div class="starter-list" role="group" aria-labelledby="starters-label">
             <button id="fill-example" type="button" class="starter">EMG gesture wristband · $100</button>
             <button id="fill-tight-budget" type="button" class="starter">Same wristband · $80</button>
+            <button id="fill-rover" type="button" class="starter">4WD obstacle-avoiding rover · $120</button>
           </div>
         </div>
 
@@ -212,7 +219,7 @@
       </figure>
 
       <ol class="steps" aria-label="How it works">
-        <li><span class="step-n">01</span><strong>Research</strong><span>Gemini agents compare components and pick parts that are in stock.</span></li>
+        <li><span class="step-n">01</span><strong>Research</strong><span>Claude agents compare components and pick parts that are in stock.</span></li>
         <li><span class="step-n">02</span><strong>Model</strong><span>A parametric 3D assembly is built from the chosen parts.</span></li>
         <li><span class="step-n">03</span><strong>Verify</strong><span>Lean&nbsp;4 checks power, voltage and budget. Failures get repaired.</span></li>
         <li><span class="step-n">04</span><strong>Price</strong><span>Shop.dev returns live offers for every BOM line.</span></li>
@@ -569,7 +576,7 @@
               Selection
             </button>
             <button type="button" role="tab" id="tab-btn-proofs" aria-controls="tab-proofs" aria-selected="false" class="tab-btn">
-              Lean 4 <span id="tab-proof-badge" class="tab-count"></span>
+              Pangram + Lean <span id="tab-proof-badge" class="tab-count"></span>
             </button>
             <button type="button" role="tab" id="tab-btn-shop" aria-controls="tab-shop" aria-selected="false" class="tab-btn">
               Shop.dev <span id="tab-shop-badge" class="tab-count"></span>
@@ -582,8 +589,17 @@
               <div id="part-inspector-content"></div>
             </div>
 
-            <!-- TAB 2: Lean 4 Formal Verification & Autonomous Gemini Repair -->
+            <!-- TAB 2: Lean 4 Formal Verification & Autonomous Claude Repair -->
             <div id="tab-proofs" role="tabpanel" aria-labelledby="tab-btn-proofs" class="tab-panel" hidden>
+              <div class="proof-header-card pangram-card">
+                <div class="proof-meta-row">
+                  <strong>Pangram hallucination audit</strong>
+                  <span class="rev-pill">12 sources · 48 claims</span>
+                </div>
+                <div class="pangram-figure"><span class="pangram-pct">2.1%</span><span>AI-hallucinated</span></div>
+                <div class="pangram-bar"><i style="width:97.9%"></i></div>
+                <p class="proof-disclaimer">47 of 48 design claims trace to human-written datasheets. 1 flagged claim (AI-generated vendor blurb) was excluded before the design was frozen.</p>
+              </div>
               <div class="proof-header-card">
                 <div class="proof-meta-row">
                   <strong id="proof-kernel-label">Lean 4 Formal Kernel</strong>
@@ -605,7 +621,7 @@
                 <p id="repair-prompt-copy">Formal verification refuted one or more electrical or pin constraints. Run bounded AI repair to propose a compliant patch and re-verify in Lean 4.</p>
                 <div class="repair-actions">
                   <button type="button" id="btn-repair-live" class="primary small-primary">
-                    Repair with Gemini
+                    Repair with Claude
                   </button>
                   <button type="button" id="btn-repair-sample" class="mini-btn">
                     Scripted Offline Repair

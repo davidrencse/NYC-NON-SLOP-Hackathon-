@@ -1,7 +1,7 @@
 // System-scale assembly: the custom PCB plus the off-board devices it drives.
 // Coordinates in mm, world X right, Z toward the viewer (rover front is -Z).
 import { byId, catalog, type CatalogItem } from './catalog'
-import { WEARABLE, VEHICLE, FLYER, EYEWEAR, BREWER, LAMP, PRINTER } from './bodyPolicy'
+import { WEARABLE, WRIST, ROVER, VEHICLE, FLYER, EYEWEAR, BREWER, LAMP, PRINTER } from './bodyPolicy'
 export { hasBuiltInBody as hasHandBuiltBody } from './bodyPolicy'
 
 export type Bus = 'power' | 'motor' | 'i2c' | 'gpio' | 'data'
@@ -171,7 +171,8 @@ const port = (i: number) => `J${i + 2}`
 
 function wearable(text: string, picks: CatalogItem[]): SystemDesign {
   const emg = picks.filter((p) => p.id === 'myoware-emg')
-  const others = picks.filter((p) => p.id !== 'myoware-emg').slice(0, 4)
+  // A band carries no drive motors or wheels, even when the brief steers a robot with it.
+  const others = picks.filter((p) => p.id !== 'myoware-emg' && busFor(p) !== 'motor').slice(0, 4)
   // Gesture bands read several muscle groups: three EMG channels around the forearm.
   const channels = emg.length ? (/\b(single|one)\b/i.test(text) ? 1 : 3) : 0
   const devices: SystemDevice[] = []
@@ -358,19 +359,25 @@ const printer = (w: number, d: number): Prim[] => {
   return parts
 }
 
+/** The reference rover, plus up to two extra devices the brief asks for. */
+function rover(text: string, picks: CatalogItem[]): SystemDesign {
+  const roverTags = new Set(defaultSystem.devices.flatMap((d) => byId[d.catalogId]?.tags ?? []).filter((t) => !GENERIC_TAGS.has(t)))
+  const extra = picks.filter((p) => busFor(p) !== 'motor' && !p.tags.some((t) => roverTags.has(t))).slice(0, 2)
+  if (!extra.length) return { ...defaultSystem, name: titleFor(text, defaultSystem.name) }
+  const base = plate(text, extra)
+  return { ...defaultSystem, name: titleFor(text, defaultSystem.name), devices: [...defaultSystem.devices, ...base.devices.filter((d) => d.id !== 'bat').map((d, i) => ({ ...d, port: `J${8 + i}`, x: i % 2 ? 58 : -58, z: 0 }))] }
+}
+
 export function systemFromPrompt(text: string): SystemDesign {
   const picks = devicesForBrief(text)
+  // Hard demo routing, no overlap: wrist briefs always get the band, rover briefs
+  // always get the reference rover. Both win over every other body.
+  // A rover brief that merely mentions a band or strap (rubber band, battery strap) stays a rover.
+  if (WEARABLE.test(text) && !(ROVER.test(text) && !WRIST.test(text))) return wearable(text, picks)
+  if (ROVER.test(text)) return rover(text, picks)
   if (FLYER.test(text)) return airframe(text, picks)
   if (EYEWEAR.test(text)) return eyewear(text, picks)
-  // A wearable brief always gets the band, before any vehicle or appliance body.
-  if (WEARABLE.test(text)) return wearable(text, picks)
-  if (VEHICLE.test(text)) {
-    const roverTags = new Set(defaultSystem.devices.flatMap((d) => byId[d.catalogId]?.tags ?? []).filter((t) => !GENERIC_TAGS.has(t)))
-    const extra = picks.filter((p) => busFor(p) !== 'motor' && !p.tags.some((t) => roverTags.has(t))).slice(0, 2)
-    if (!extra.length) return { ...defaultSystem, name: titleFor(text, defaultSystem.name) }
-    const base = plate(text, extra)
-    return { ...defaultSystem, name: titleFor(text, defaultSystem.name), devices: [...defaultSystem.devices, ...base.devices.filter((d) => d.id !== 'bat').map((d, i) => ({ ...d, port: `J${8 + i}`, x: i % 2 ? 58 : -58, z: 0 }))] }
-  }
+  if (VEHICLE.test(text)) return rover(text, picks)
   if (BREWER.test(text)) return shaped(text, picks, 'Brewer B1', brewer)
   if (PRINTER.test(text)) return shaped(text, picks, 'Printer P1', printer)
   if (LAMP.test(text)) return shaped(text, picks, 'Lamp L1', lamp)

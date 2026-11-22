@@ -24,6 +24,8 @@ KEYS_FILE = Path(os.getenv("FORGE_KEYS_FILE") or Path(__file__).resolve().parent
 
 # field -> (env var, provider, label, secret)
 FIELDS: dict[str, tuple[str, str, str, bool]] = {
+    "anthropic_api_key": ("ANTHROPIC_API_KEY", "claude", "Claude API key", True),
+    "claude_model": ("FORGE_CLAUDE_MODEL", "claude", "Claude model (default claude-opus-5-5)", False),
     "gemini_api_key": ("GEMINI_API_KEY", "gemini", "Gemini API key", True),
     "gemini_model": ("FORGE_GEMINI_MODEL", "gemini", "Gemini model", False),
     "reducto_api_key": ("REDUCTO_API_KEY", "reducto", "Reducto API key", True),
@@ -33,7 +35,8 @@ FIELDS: dict[str, tuple[str, str, str, bool]] = {
 }
 
 PROVIDERS: dict[str, dict[str, str]] = {
-    "gemini": {"title": "Gemini", "role": "Agent reasoning and report writing", "needs": "gemini_api_key,gemini_model"},
+    "claude": {"title": "Claude", "role": "Agent reasoning, web source discovery, datasheet review and report writing", "needs": "anthropic_api_key"},
+    "gemini": {"title": "Gemini", "role": "Fallback only when no Claude key is set", "needs": "gemini_api_key,gemini_model"},
     "reducto": {"title": "Reducto", "role": "Reads every datasheet for every part", "needs": "reducto_api_key"},
     "pangram": {"title": "Pangram", "role": "Authorship signals only; source evidence and Lean check design claims", "needs": "pangram_api_key"},
     "modal": {"title": "Modal", "role": "Cloud CadQuery enclosure generation", "needs": "modal_cad_url"},
@@ -45,6 +48,8 @@ _ENV_LINE = re.compile(r"^([A-Z0-9_]+)=(.*)$")
 class KeyUpdate(BaseModel):
     """Values to set. Omitted fields are unchanged; an empty string clears a field."""
 
+    anthropic_api_key: str | None = Field(default=None, max_length=512)
+    claude_model: str | None = Field(default=None, max_length=200)
     gemini_api_key: str | None = Field(default=None, max_length=512)
     gemini_model: str | None = Field(default=None, max_length=200)
     reducto_api_key: str | None = Field(default=None, max_length=512)

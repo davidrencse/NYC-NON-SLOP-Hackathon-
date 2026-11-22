@@ -20,7 +20,8 @@ export interface HistoryEntry {
 export interface StudioState {
   scale: Scale // 'system' = whole assembly, 'board' = the custom PCB
   mode: 'research' | 'engineer' // research swarm (friend's FastAPI app) or the PCB studio
-  pendingPrompt: string | null // board brief waiting for the Gemini prompt bar to run
+  pendingPrompt: string | null // board brief waiting for the prompt bar to run
+  brief: string | null // brief the current system and board were built from
   system: SystemDesign
   device: string | null // selected system device id
   hoveredDevice: string | null
@@ -109,6 +110,7 @@ let state: StudioState = {
   // handed over in the URL opens the studio directly.
   mode: new URLSearchParams(location.search).has('brief') ? 'engineer' : 'research',
   pendingPrompt: briefFromUrl(),
+  brief: briefFromUrl(),
   system: briefFromUrl() ? systemFromPrompt(briefFromUrl()!) : defaultSystem,
   device: null,
   hoveredDevice: null,

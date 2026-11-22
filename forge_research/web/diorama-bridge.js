@@ -8,6 +8,11 @@ const MAX_BUFFER = 400;
 const buffer = [];
 let frame = null;
 let open = false;
+// The studio handoff stays locked until the crew has played the whole story
+// through (plus a short beat), so every run shows the full animation.
+const HOLD_AFTER_STORY_MS = 5000;
+const FALLBACK_MS = 75000; // if the diorama never reports (e.g. WebGL unavailable)
+let gate = { locked: false, finished: false, timer: 0, fallback: 0 };
 
 function post(message) {
   frame?.contentWindow?.postMessage({ source: "forge-research", ...message }, location.origin);
@@ -36,8 +41,44 @@ function compact(event) {
   return { type: event.type, stage: event.stage, status: event.status, detail: event.detail, provider: event.provider, event: event.event, mode: event.mode, message: event.message };
 }
 
+function setLocked(locked) {
+  gate.locked = locked;
+  document.body.classList.toggle("forge-handoff-locked", locked);
+  renderHandoff();
+}
+
+function unlockSoon(delay) {
+  clearTimeout(gate.timer);
+  gate.timer = setTimeout(() => { clearTimeout(gate.fallback); setLocked(false); }, delay);
+}
+
+function renderHandoff() {
+  const box = document.getElementById("rg-cute-handoff");
+  if (!box) return;
+  const ready = gate.finished && !gate.locked && gate.outcome === "completed";
+  box.hidden = !(gate.finished && gate.outcome === "completed");
+  box.querySelector("button").hidden = !ready;
+  box.querySelector("span").textContent = ready ? "The crew is done. Take it to the bench." : "Crew is wrapping up the build…";
+}
+
+function goToStudio() {
+  const target = ["engineer-pcb-btn", "btn-engineer-pcb", "open-workbench-btn"]
+    .map(id => document.getElementById(id))
+    .find(button => button && !button.hidden && !button.disabled);
+  target?.click();
+}
+
+addEventListener("message", event => {
+  if (event.origin !== location.origin || event.data?.source !== "forge-diorama") return;
+  if (event.data.type === "story-complete" && gate.locked && gate.finished) unlockSoon(HOLD_AFTER_STORY_MS);
+});
+
 export function dioramaStart(mode, brief) {
   buffer.length = 0;
+  clearTimeout(gate.timer); clearTimeout(gate.fallback);
+  gate = { locked: false, finished: false, timer: 0, fallback: 0, outcome: null };
+  setLocked(true);
+  if (!open) setOpen(true);
   remember({ type: "start", mode, brief });
 }
 
@@ -49,6 +90,15 @@ export function dioramaEvent(event) {
 }
 
 export function dioramaFinish(outcome, message, report) {
+  gate.finished = true;
+  gate.outcome = outcome;
+  if (outcome === "completed") {
+    clearTimeout(gate.fallback);
+    gate.fallback = setTimeout(() => setLocked(false), FALLBACK_MS);
+    renderHandoff();
+  } else {
+    setLocked(false); // nothing to hand off; never hold a failed run hostage
+  }
   const parts = report?.review?.selected_parts ?? report?.proposal?.parts ?? [];
   remember({
     type: "finish", outcome, message,
@@ -72,11 +122,18 @@ function setOpen(next) {
     frame.title = "Research crew diorama";
     frame.src = SRC;
     frame.addEventListener("load", () => post({ type: "replay", events: buffer }));
-    wrap.append(frame);
+    const handoff = document.createElement("div");
+    handoff.id = "rg-cute-handoff";
+    handoff.className = "rg-cute-handoff";
+    handoff.hidden = true;
+    handoff.innerHTML = '<span></span><button type="button" hidden>Open PCB engineering studio →</button>';
+    handoff.querySelector("button").addEventListener("click", goToStudio);
+    wrap.append(frame, handoff);
     view.append(wrap);
   }
   if (frame) frame.parentElement.hidden = !open;
   if (open) post({ type: "replay", events: buffer });
+  renderHandoff();
   try { localStorage.setItem("forge:cute-mode", open ? "1" : "0"); } catch { /* storage unavailable */ }
 }
 

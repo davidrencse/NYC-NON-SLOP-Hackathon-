@@ -30,7 +30,7 @@ from .evidence.datasheets import (
     require_design_evidence, require_cached_design_evidence,
 )
 from .providers.keys import KeyUpdate, forget_saved_keys, integrations_status, load_saved_keys, update_keys
-from .providers.llm import live_model
+from .providers.llm import live_model, provider_error_status
 from .engineering_handoff import handoff_router
 from .providers.gemini_models import list_gemini_models
 from .providers.usage import UsageSummary, usage_summary
@@ -197,7 +197,7 @@ class RepairRequest(BaseModel):
 class RepairResponse(BaseModel):
     repaired: bool
     attempts: int
-    actor: Literal["gemini", "nous", "offline_fixture"]
+    actor: Literal["claude", "gemini", "nous", "offline_fixture"]
     rationale: str
     diff: RevisionDiff | None = None
     project: ProjectView
@@ -439,7 +439,7 @@ def require_current_project(project_id: UUID, revision: int) -> ManagedProject:
 
 
 LIVE_UNAVAILABLE = (
-    "Live research needs Gemini configured on the server. You can run the offline sample."
+    "Live research needs a Claude API key (ANTHROPIC_API_KEY) on the server. You can run the offline sample."
 )
 
 
@@ -483,7 +483,7 @@ def pcb_url() -> str:
     return written or "http://localhost:5173/"
 
 
-ACTOR_LABELS = {"gemini": "Gemini", "nous": "Nous", "offline_fixture": "Offline fixture"}
+ACTOR_LABELS = {"claude": "Claude", "gemini": "Gemini", "nous": "Nous", "offline_fixture": "Offline fixture"}
 load_saved_keys()
 
 
@@ -645,18 +645,22 @@ async def _run_catalog_research(
         ) from error
     except (TimeoutError, LlmCallsLimitExceededError) as error:
         raise HTTPException(504, "Research timed out. Try again.") from error
-    except APIError as error:
-        if error.code in (401, 403) or "API_KEY_INVALID" in str(error):
+    except Exception as error:
+        status = provider_error_status(error)
+        if status is None:
+            raise
+        name = "Claude" if (live_model() and live_model().mode == "claude") else "Gemini"
+        if status in (401, 403) or "API_KEY_INVALID" in str(error):
             message = (
-                "Gemini rejected the server credential. Update it or run the offline sample."
+                f"{name} rejected the server credential. Update it or run the offline sample."
             )
-        elif error.code == 429:
+        elif status == 429:
             message = (
-                "Gemini is temporarily rate limited. Try again or run the offline sample."
+                f"{name} is temporarily rate limited. Try again or run the offline sample."
             )
         else:
             message = (
-                "Gemini could not complete the request. Try again or run the offline sample."
+                f"{name} could not complete the request. Try again or run the offline sample."
             )
         raise HTTPException(502, message) from error
 
@@ -1023,7 +1027,7 @@ async def repair_project(project_id: UUID, req: RepairRequest) -> RepairResponse
             return RepairResponse(
                 repaired=True,
                 attempts=0,
-                actor=(live_model().mode if live_model() else "gemini") if req.mode == "live" else "offline_fixture",
+                actor=(live_model().mode if live_model() else "claude") if req.mode == "live" else "offline_fixture",
                 rationale="All checkable constraints already pass; no repair required.",
                 diff=None,
                 project=build_project_view(project),
@@ -1034,7 +1038,7 @@ async def repair_project(project_id: UUID, req: RepairRequest) -> RepairResponse
         if req.mode == "live" and live is None:
             raise HTTPException(
                 503,
-                "Live repair needs GEMINI_API_KEY with FORGE_GEMINI_MODEL configured. "
+                "Live repair needs ANTHROPIC_API_KEY (Claude) configured. "
                 "Use Offline scripted repair to test locally.",
             )
         if effective_mode == "live":
@@ -1055,9 +1059,12 @@ async def repair_project(project_id: UUID, req: RepairRequest) -> RepairResponse
                 )
             except ResearchError as exc:
                 raise HTTPException(502, str(exc)) from exc
-            except APIError as exc:
+            except Exception as exc:
+                status = provider_error_status(exc)
+                if status is None:
+                    raise
                 raise HTTPException(
-                    502, f"Gemini repair request failed (status {exc.code})."
+                    502, f"{ACTOR_LABELS.get(actor, 'Model')} repair request failed (status {status})."
                 ) from exc
 
             last_rationale = patch.rationale

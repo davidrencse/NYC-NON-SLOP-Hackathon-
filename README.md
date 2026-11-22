@@ -21,8 +21,7 @@ The run graph streams the lead engineer, parts search, compatibility checks, rev
 The PCB studio in `pcb-studio/` is the engineering half of FORGE. It opens on a system view of the whole device, with catalog peripherals (motors, sensors, displays, power) wired to a custom PCB by bus. Select a device to compare compatible replacements by price and current draw, or swap it. Scroll into the PCB to work on the board itself, with 3D parts, routed copper, Gemini board generation, Lean 4 design-rule proofs, and STL, GLB, OBJ, PNG and BOM exports.
 
 ```bash
-uv run --locked --python 3.12 python -m forge_research.studio   # research swarm on :8000
-cd pcb-studio && npm install && npm run dev                      # studio on :5173
+cd pcb-studio && npm install && npm run dev   # one app on :5173 (also starts the research server on :8000)
 ```
 
 ### Local 3D assemblies

@@ -1,4 +1,4 @@
-"""Agent swarm: parallel engineering specialists orchestrated on the Gemini API.
+"""Agent swarm: parallel engineering specialists orchestrated on the Claude API.
 
 FORGE fans the brief out to every specialist at once (``asyncio.gather``, no
 concurrency cap), streams each one's text back to the research screen, then a
@@ -23,7 +23,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from forge_research.providers.usage import record_usage
-from forge_research.providers.defaults import configured_gemini_model
 
 TIMEOUT_S = float(os.getenv("FORGE_SWARM_TIMEOUT", "120"))
 
@@ -63,7 +62,7 @@ class SwarmAgentResult(BaseModel):
 
 
 class SwarmReport(BaseModel):
-    engine: Literal["gemini", "offline"]
+    engine: Literal["claude", "gemini", "offline"]
     model: str | None = None
     status: Literal["completed", "failed", "skipped"]
     agents: list[SwarmAgentResult] = Field(default_factory=list)
@@ -77,10 +76,9 @@ class SwarmReport(BaseModel):
 
 
 def swarm_model() -> str:
-    return (
-        os.getenv("FORGE_SWARM_MODEL", "").strip()
-        or configured_gemini_model()
-    )
+    from ..providers.claude import claude_model
+
+    return os.getenv("FORGE_SWARM_MODEL", "").strip() or claude_model()
 
 
 def gemini_key() -> str | None:
@@ -92,7 +90,9 @@ def gemini_key() -> str | None:
 
 
 def swarm_available() -> bool:
-    return os.getenv("FORGE_SWARM", "on").lower() not in {"off", "0", "false"} and gemini_key() is not None
+    from ..providers.claude import claude_key
+
+    return os.getenv("FORGE_SWARM", "on").lower() not in {"off", "0", "false"} and claude_key() is not None
 
 
 def build_tasks(brief: str) -> list[dict]:
@@ -156,47 +156,49 @@ async def _run_offline(brief: str, emit: Emit | None, *, reason: str | None) -> 
 
 
 async def _run_live(brief: str, emit: Emit | None) -> SwarmReport:
-    """Every specialist streams from Gemini at once; no concurrency cap."""
-    from google import genai
-    from google.genai import types
+    """Every specialist streams from Claude at once; no concurrency cap."""
+    from ..providers.claude import claude_client, text_of
 
-    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "false"
     model = swarm_model()
     started = time.monotonic()
-    client = genai.Client(api_key=gemini_key())
-    await _send(emit, {"event": "start", "engine": "gemini", "model": model, "agents": [r.model_dump() for r in ROLES]})
+    client = claude_client(timeout=TIMEOUT_S)
+    await _send(emit, {"event": "start", "engine": "claude", "model": model, "agents": [r.model_dump() for r in ROLES]})
 
     async def specialist(index: int, task: dict) -> SwarmAgentResult:
         role = ROLES[index]
         t0 = time.monotonic()
         await _send(emit, {"event": "agent", "index": index, "role": role.id, "status": "running"})
-        text, meta = "", None
+        text, usage = "", None
         try:
-            stream = await client.aio.models.generate_content_stream(
+            async with client.messages.stream(
                 model=model,
-                contents=task["context"],
-                config=types.GenerateContentConfig(system_instruction=task["goal"], temperature=0.4),
-            )
-            last = 0.0
-            async for chunk in stream:
-                text += chunk.text or ""
-                meta = chunk.usage_metadata or meta
-                if time.monotonic() - last > 0.25:
-                    last = time.monotonic()
-                    await _send(emit, {"event": "agent", "index": index, "role": role.id, "status": "running", "text": text[-240:]})
+                max_tokens=4000,
+                system=task["goal"] + "\nKeep the brief under 250 words.",
+                messages=[{"role": "user", "content": task["context"]}],
+                output_config={"effort": "low"},
+            ) as stream:
+                last = 0.0
+                async for chunk in stream.text_stream:
+                    text += chunk
+                    if time.monotonic() - last > 0.25:
+                        last = time.monotonic()
+                        await _send(emit, {"event": "agent", "index": index, "role": role.id, "status": "running", "text": text[-240:]})
+                final = await stream.get_final_message()
+            usage = final.usage
+            text = text or text_of(final)
             status = "completed" if text.strip() else "failed"
-            summary = text.strip()[:2000] or "Gemini returned no text."
+            summary = text.strip()[:2000] or "Claude returned no text."
         except Exception as exc:  # noqa: BLE001
             status, summary = "failed", f"{type(exc).__name__}: {exc}"[:300]
         duration = round(time.monotonic() - t0, 2)
         result = SwarmAgentResult(
             role=role.id, name=role.name, status=status, summary=summary, duration_s=duration,
-            input_tokens=getattr(meta, "prompt_token_count", None),
-            output_tokens=getattr(meta, "candidates_token_count", None),
+            input_tokens=getattr(usage, "input_tokens", None),
+            output_tokens=getattr(usage, "output_tokens", None),
             api_calls=1,
         )
         record_usage(
-            "gemini", f"swarm.{role.id}", model=model, ok=status == "completed", duration_ms=int(duration * 1000),
+            "claude", f"swarm.{role.id}", model=model, ok=status == "completed", duration_ms=int(duration * 1000),
             prompt_tokens=result.input_tokens, output_tokens=result.output_tokens,
         )
         await _send(emit, {"event": "agent", "index": index, "role": role.id, "status": status, "result": result.model_dump()})
@@ -216,21 +218,24 @@ async def _run_live(brief: str, emit: Emit | None) -> SwarmReport:
     else:
         await _send(emit, {"event": "synthesis", "status": "running"})
         try:
-            response = await asyncio.wait_for(
-                client.aio.models.generate_content(
-                    model=model, contents=f"Product brief:\n{brief}\n\n{briefs}",
-                    config=types.GenerateContentConfig(system_instruction=SYNTHESIS_PROMPT, temperature=0.3),
+            message = await asyncio.wait_for(
+                client.messages.create(
+                    model=model, max_tokens=4000, system=SYNTHESIS_PROMPT,
+                    messages=[{"role": "user", "content": f"Product brief:\n{brief}\n\n{briefs}"}],
+                    output_config={"effort": "low"},
                 ),
-                timeout=60,
+                timeout=90,
             )
-            synthesis = (response.text or "").strip()[:4000]
+            synthesis = text_of(message).strip()[:4000]
+            record_usage("claude", "swarm.synthesis", model=model,
+                         prompt_tokens=message.usage.input_tokens, output_tokens=message.usage.output_tokens)
             await _send(emit, {"event": "synthesis", "status": "completed", "text": synthesis})
         except Exception as exc:  # noqa: BLE001
             error = f"Synthesis failed: {type(exc).__name__}: {exc}"[:300]
             await _send(emit, {"event": "synthesis", "status": "failed"})
     ok = not error
     report = SwarmReport(
-        engine="gemini", model=model, status="completed" if ok else "failed",
+        engine="claude", model=model, status="completed" if ok else "failed",
         agents=list(agents), synthesis=synthesis, duration_s=round(time.monotonic() - started, 2), error=error,
     )
     await _send(emit, {"event": "complete", "report": report.model_dump()})
@@ -239,7 +244,7 @@ async def _run_live(brief: str, emit: Emit | None) -> SwarmReport:
 
 async def _fail(emit: Emit | None, model: str, started: float, message: str) -> SwarmReport:
     report = SwarmReport(
-        engine="gemini", model=model, status="failed", error=message,
+        engine="claude", model=model, status="failed", error=message,
         agents=[SwarmAgentResult(role=r.id, name=r.name, status="failed") for r in ROLES],
         duration_s=round(time.monotonic() - started, 2),
     )

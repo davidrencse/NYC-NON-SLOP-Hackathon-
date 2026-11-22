@@ -1562,3 +1562,10 @@ input[type="range"] {
   .switch, .switch::after, .policy-edit::after { transition: none; }
 }
 @media (max-width: 560px), (pointer: coarse) { .composer-foot .shortcut { display: none; } }
+
+.pangram-figure { display: flex; align-items: baseline; gap: 8px; margin: 8px 0 6px; font: .8rem var(--mono); color: var(--muted); }
+.pangram-pct { font-size: 1.8rem; font-weight: 600; color: var(--pass); font-variant-numeric: tabular-nums; }
+.pangram-bar { height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--pass) 18%, transparent); overflow: hidden; }
+.pangram-bar i { display: block; height: 100%; background: var(--pass); }
+.engine-line { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-size: .8rem; color: var(--subtle); letter-spacing: .01em; }
+.engine-dot { width: 7px; height: 7px; border-radius: 50%; background: #7fdcb0; box-shadow: 0 0 6px #7fdcb0; flex: none; }

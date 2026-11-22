@@ -63,7 +63,7 @@ class GeminiProviderTests(unittest.TestCase):
             self.assertTrue(integrations_status()["providers"]["gemini"]["configured"])
 
     def test_key_setup_exposes_only_current_providers(self):
-        self.assertEqual(set(PROVIDERS), {"gemini", "reducto", "pangram", "modal"})
+        self.assertEqual(set(PROVIDERS), {"claude", "gemini", "reducto", "pangram", "modal"})
         self.assertFalse(any("nous" in field for field in FIELDS))
         self.assertNotIn("nous_api_key", KeyUpdate.model_fields)
 

@@ -19,7 +19,7 @@ const STAGES = {
   sensor: { name: "catalog.emg", label: "EMG sensors", worker: 2, copy: "Sensor candidates from the catalog." },
   compatibility: { name: "compat.gate", label: "Compatibility", worker: 3, copy: "Check that the parts work together and fit the budget." },
   reviewer: { name: "design.review", label: "Design review", worker: 3, copy: "Surface open questions and next steps." },
-  evidence: { name: "datasheet.verify", label: "Datasheet verification", worker: 3, copy: "Compare independent Reducto and Gemini PDF reads before building." },
+  evidence: { name: "datasheet.verify", label: "Datasheet verification", worker: 3, copy: "Compare independent Reducto and Claude PDF reads before building." },
   hold: { name: "build.hold", label: "Build hold", worker: 3, copy: "Keep the report when the build cannot proceed." },
   geometry: { name: "geometry.build", label: "Geometry", worker: 4, copy: "Assemble the enclosure and parts." },
   verification: { name: "lean.verify", label: "Lean 4 proofs", worker: 4, copy: "Prove the electrical and budget obligations." },
@@ -214,7 +214,7 @@ const ROWS = {
     return [["outcome", short(d.outcome)], ["subtotal", usd(d.core_subtotal_usd_cents)], ["findings", d.findings?.length ?? DASH]];
   },
   reviewer: () => [["steps", data("reviewer").next_steps?.length ?? DASH], ["agent", "reviewer"], ["output", "notes"]],
-  evidence: () => [["readers", "Reducto + Gemini"], ["gate", report?.evidence_blocked ? "blocked" : state.get("evidence")?.status === "completed" ? "agreed" : DASH]],
+  evidence: () => [["readers", "Reducto + Claude"], ["gate", report?.evidence_blocked ? "blocked" : state.get("evidence")?.status === "completed" ? "agreed" : DASH]],
   hold: () => {
     const s = state.get("hold");
     return [["branch", s?.status === "completed" ? "armed" : s?.status === "skipped" ? "clear" : DASH], ["reason", short(s?.summary, 16)], ["report", "kept"]];
@@ -593,9 +593,9 @@ export function showResearchMap(runMode, runBrief) {
   $("edit-brief").hidden = true;
   $("stop-research").hidden = false;
   $("map-brief").textContent = brief;
-  $("map-mode").textContent = mode === "sample" ? "FORGE / offline sample" : "FORGE / Gemini";
+  $("map-mode").textContent = mode === "sample" ? "FORGE / offline sample · Modal CAD" : "FORGE / Claude · Modal CAD";
   $("research-title").textContent = "forge-run-" + new Date().toISOString().slice(11, 19).replaceAll(":", "");
-  $("rg-cmd").textContent = mode === "sample" ? "research sample.md --offline" : "research brief.md --gemini --no-order";
+  $("rg-cmd").textContent = mode === "sample" ? "research sample.md --offline" : "research brief.md --claude --modal --no-order";
   $("rg-events").textContent = "0000";
   $("rg-gate").textContent = "Research running. Nothing is built or bought without you.";
   log.replaceChildren();

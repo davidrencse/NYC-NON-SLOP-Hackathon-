@@ -133,9 +133,9 @@ def generate_enclosure(body: dict):
 
 
 def run_product_job(
-    system: dict, board: dict | None = None, *, brief: str = "", gemini_key: str = "", model: str = "", rounds: int = 1,
+    system: dict, board: dict | None = None, *, brief: str = "", api_key: str = "", model: str = "", rounds: int = 1,
 ) -> dict:
-    """Design (Gemini writes CadQuery, sees a render, revises) and build one product.
+    """Design (Claude writes CadQuery, sees a render, revises) and build one product.
 
     Falls back to the primitive body designer if no working code comes back.
     Cached by the final design, so a repeat of the same design is not rebuilt.
@@ -146,19 +146,19 @@ def run_product_job(
     from modal_workers import codegen, designer, preview, product
 
     design, body = None, None
-    if brief and gemini_key:
+    if brief and api_key:
         try:
             design = codegen.design(
-                brief, system, api_key=gemini_key, model=model or designer.default_model(),
+                brief, system, api_key=api_key, model=model or designer.default_model(),
                 rounds=rounds, render=preview.render_parts,
             )
             body = design.pop("parts")
             system = {**system, "form": "none", "structure": [], "name": design["name"]}
         except RuntimeError as error:
             print("codegen failed, using primitive designer:", error)
-            design = designer.design_body(brief, system, api_key=gemini_key, model=model or designer.default_model(), cache_dir=CACHE / "designs")
+            design = designer.design_body(brief, system, api_key=api_key, model=model or designer.default_model(), cache_dir=CACHE / "designs")
             if not design["parts"]:
-                raise ValueError("Gemini returned no valid body parts.") from error
+                raise ValueError("Claude returned no valid body parts.") from error
             system = {**system, "form": "none", "structure": design["parts"]}
     devices = product.load_local_devices(system, Path("/root/device_glb"), flat=True)
     key = product.spec_hash({"system": system, "board": board, "code": (design or {}).get("code")}, list(devices))
@@ -201,8 +201,8 @@ def run_product_job(
 )
 @modal.fastapi_endpoint(method="POST", docs=False)
 def build_product(body: dict):
-    """POST {system, brief?, gemini_key?, model?, board?, _token}. With a brief and
-    key, Gemini designs a new body first; the key is used for this call only."""
+    """POST {system, brief?, anthropic_key?, model?, board?, _token}. With a brief and
+    key, Claude designs a new body first; the key is used for this call only."""
     from fastapi import HTTPException
 
     expected = os.environ.get("FORGE_MODAL_TOKEN")
@@ -215,28 +215,28 @@ def build_product(body: dict):
     try:
         return run_product_job(
             system, body.get("board"),
-            brief=str(body.get("brief") or ""), gemini_key=str(body.get("gemini_key") or ""), model=str(body.get("model") or ""),
+            brief=str(body.get("brief") or ""), api_key=str(body.get("anthropic_key") or body.get("api_key") or ""), model=str(body.get("model") or ""),
         )
     except (ValueError, RuntimeError) as error:
         raise HTTPException(502, str(error)) from error
 
 
 @app.function(volumes={str(CACHE): cache}, cpu=2.0, memory=4096, timeout=1200)
-def remote_product(system: dict, brief: str, gemini_key: str, model: str = "", rounds: int = 1) -> dict:
-    return run_product_job(system, brief=brief, gemini_key=gemini_key, model=model, rounds=rounds)
+def remote_product(system: dict, brief: str, api_key: str, model: str = "", rounds: int = 1) -> dict:
+    return run_product_job(system, brief=brief, api_key=api_key, model=model, rounds=rounds)
 
 
 @app.local_entrypoint()
 def generate(drafts: str) -> None:
-    """`GEMINI_API_KEY=... modal run modal_workers/app.py::generate --drafts drafts.json`
+    """`ANTHROPIC_API_KEY=... modal run modal_workers/app.py::generate --drafts drafts.json`
 
     drafts.json maps each new brief to {"system": SystemDesign}. Every brief is
-    designed by Gemini and built in parallel on Modal; GLBs land next to the file.
+    designed by Claude and built in parallel on Modal; GLBs land next to the file.
     """
     import json
     import re
 
-    key = os.environ["GEMINI_API_KEY"]
+    key = os.environ["ANTHROPIC_API_KEY"]
     data = json.loads(Path(drafts).read_text())
     briefs = list(data)
     out = Path(drafts).parent

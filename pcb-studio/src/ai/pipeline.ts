@@ -285,7 +285,7 @@ export async function runPipeline(req: GenRequest, deps: PipelineDeps): Promise<
   stage('select', `Plan "${plan.name}": ${plan.parts.length} parts. Matching catalog entries`)
   let unknown = plan.parts.filter((p) => !cat.byId.has(p.catalogId))
   for (let attempt = 1; unknown.length && attempt <= MAX_REPAIRS; attempt++) {
-    stage('select', `Repairing ${unknown.length} unknown catalog id(s) with Gemini carbon (attempt ${attempt})`)
+    stage('select', `Repairing ${unknown.length} unknown catalog id(s) with Claude (fast) (attempt ${attempt})`)
     const rep = await llm({
       model: 'carbon',
       system: 'Replace invalid catalog ids with the closest valid catalog id, or DROP if nothing fits. Answer only with valid ids.',
@@ -343,7 +343,7 @@ export async function runPipeline(req: GenRequest, deps: PipelineDeps): Promise<
   emit({ type: 'stage', stage: 'place', message: `Board ${placed.width} × ${placed.height} mm, placed in ${placed.attempts} pass(es)`, ms: Date.now() - t0 })
 
   // ---- 4. route: argon proposes the netlist
-  stage('route', 'Drafting the netlist with Gemini argon')
+  stage('route', 'Drafting the netlist with Claude')
   const block = partsBlock(parts, planned, pinNames)
   const netsRaw = await llm({
     model: 'argon',
@@ -358,7 +358,7 @@ export async function runPipeline(req: GenRequest, deps: PipelineDeps): Promise<
   stage('check', `Validating ${proposed.length} nets against the footprints`)
   let v = validateNets(proposed, parts, pinNames)
   for (let attempt = 1; v.issues.length && attempt <= MAX_REPAIRS; attempt++) {
-    stage('check', `${v.issues.length} netlist issue(s); repairing with Gemini carbon (attempt ${attempt})`)
+    stage('check', `${v.issues.length} netlist issue(s); repairing with Claude (fast) (attempt ${attempt})`)
     const fixed = await llm({
       model: 'carbon',
       system: `${NETS_SYSTEM}\n${researchText}\nYou are repairing an existing netlist: fix every listed issue, keep everything else unchanged, and return the COMPLETE corrected netlist.`,

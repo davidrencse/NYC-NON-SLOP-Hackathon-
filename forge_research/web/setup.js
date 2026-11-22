@@ -7,6 +7,7 @@ const $ = sel => document.querySelector(sel);
 const DISMISSED = "forge.setup.dismissed";
 
 const GROUPS = [
+  { provider: "claude", fields: [["anthropic_api_key", "password", "sk-ant-…"], ["claude_model", "text", "claude-opus-5-5"]] },
   { provider: "gemini", fields: [["gemini_api_key", "password", "AIza…"], ["gemini_model", "select", "Choose a Gemini model"]] },
   { provider: "reducto", fields: [["reducto_api_key", "password", "Reducto key"]] },
   { provider: "pangram", fields: [["pangram_api_key", "password", "Pangram key"]] },
@@ -120,9 +121,9 @@ function render() {
   }
   $("#setup-remember").checked = status.remembered;
   $("#setup-forget").hidden = !status.remembered;
-  const live = status.providers.gemini.configured;
+  const live = status.providers.claude?.configured || status.providers.gemini.configured;
   $("#setup-summary").textContent = live
-    ? `Live agents: Gemini. ${Object.values(status.providers).filter(p => p.configured).length} of ${GROUPS.length} providers connected.`
+    ? `Live agents: ${status.providers.claude?.configured ? "Claude" : "Gemini"}. ${Object.values(status.providers).filter(p => p.configured).length} of ${GROUPS.length} providers connected.`
     : "No LLM key yet. You can still open the offline demo.";
   updatePill();
   if (status.fields.gemini_api_key.set) void loadModels();

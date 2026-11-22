@@ -1,4 +1,4 @@
-"""Headless preview render (numpy z-buffer, CPU) so Gemini can look at its own design."""
+"""Headless preview render (numpy z-buffer, CPU) so Claude can look at its own design."""
 
 from __future__ import annotations
 

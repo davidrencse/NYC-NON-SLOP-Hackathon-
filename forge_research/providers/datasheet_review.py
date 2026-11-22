@@ -6,12 +6,9 @@ import os
 import time
 from typing import Literal
 
-from google import genai
-from google.genai import types
 from pydantic import BaseModel, ConfigDict, Field
 
 from .usage import record_usage
-from .defaults import configured_gemini_model
 
 REVIEW_VERSION = 1
 CriticalField = Literal[
@@ -53,14 +50,16 @@ class ReviewUnavailable(RuntimeError):
 
 
 def review_model() -> str:
-    return (os.getenv("FORGE_DATASHEET_REVIEW_MODEL", "").strip()
-            or configured_gemini_model())
+    from .claude import claude_model
+
+    return os.getenv("FORGE_DATASHEET_REVIEW_MODEL", "").strip() or claude_model()
 
 
 async def read_pdf(pdf: bytes, *, subject: str, manufacturer: str) -> IndependentRead:
-    key = os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip()
-    if not key:
-        raise ReviewUnavailable("Gemini key missing; independent PDF verification unavailable.")
+    from .claude import claude_client, claude_key
+
+    if not claude_key():
+        raise ReviewUnavailable("Claude key missing; independent PDF verification unavailable.")
     # Keep base64 + prompt comfortably below the inline request limit. Fail closed.
     if len(pdf) > 14 * 1024 * 1024:
         raise ReviewUnavailable("PDF exceeds the independent reader's 14 MB inline limit.")
@@ -79,23 +78,29 @@ async def read_pdf(pdf: bytes, *, subject: str, manufacturer: str) -> Independen
     started = time.monotonic()
     model = review_model()
     try:
-        async with genai.Client(api_key=key, http_options=types.HttpOptions(timeout=120_000)).aio as client:
-            response = await asyncio.wait_for(client.models.generate_content(
+        import base64
+
+        async with claude_client(timeout=180.0) as client:
+            response = await asyncio.wait_for(client.messages.parse(
                 model=model,
-                contents=[types.Part.from_bytes(data=pdf, mime_type="application/pdf"), prompt],
-                config=types.GenerateContentConfig(
-                    temperature=0, response_mime_type="application/json",
-                    response_schema=IndependentRead,
-                ),
-            ), timeout=125)
-        result = IndependentRead.model_validate_json(response.text or "")
+                max_tokens=16000,
+                messages=[{"role": "user", "content": [
+                    {"type": "document", "source": {"type": "base64", "media_type": "application/pdf",
+                                                     "data": base64.b64encode(pdf).decode()}},
+                    {"type": "text", "text": prompt},
+                ]}],
+                output_format=IndependentRead,
+                output_config={"effort": "medium"},
+            ), timeout=185)
+        result = response.parsed_output
+        if result is None:
+            raise ValueError(f"no structured output (stop_reason={response.stop_reason})")
     except Exception as error:
-        record_usage("gemini", "datasheet.independent_read", model=model, ok=False,
+        record_usage("claude", "datasheet.independent_read", model=model, ok=False,
                      detail=type(error).__name__)
         raise ReviewUnavailable(f"Independent PDF read failed ({type(error).__name__}).") from error
-    usage = response.usage_metadata
-    record_usage("gemini", "datasheet.independent_read", model=model,
+    record_usage("claude", "datasheet.independent_read", model=model,
                  duration_ms=int((time.monotonic() - started) * 1000),
-                 prompt_tokens=getattr(usage, "prompt_token_count", None),
-                 output_tokens=getattr(usage, "candidates_token_count", None))
+                 prompt_tokens=response.usage.input_tokens,
+                 output_tokens=response.usage.output_tokens)
     return result

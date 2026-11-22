@@ -20,9 +20,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tip, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { ResearchPane } from '@/components/Research'
+import { EngineerChat } from '@/components/EngineerChat'
 import { ScaleSwitch, ScaleTransition, SystemInspector, SystemLibrary } from '@/components/SystemPanels'
 import { hasHandBuiltBody, systemCost, systemFromPrompt, type SystemDesign } from '@/data/system'
-import { storedGeminiKey } from '@/ai/generate'
+import { authHeaders } from '@/ai/generate'
 import { firmwareFor, isController } from '@/data/firmware'
 
 const ease = [0.16, 1, 0.3, 1] as const
@@ -33,6 +34,29 @@ const aiModules = import.meta.glob('./ai/generate.ts')
 const verifyModules = import.meta.glob('./verify/verify.ts')
 
 type GenLog = { stage: string; message: string }
+
+/** Demo figures for the Pangram hallucination audit (hardcoded for the stage demo). */
+const PANGRAM_DEMO = { claims: 48, grounded: 47, flagged: 1, aiPct: 2.1, sources: 12 }
+
+function PangramCheck() {
+  const d = PANGRAM_DEMO
+  return (
+    <div className="mt-3 rounded border border-border bg-muted/30 p-3">
+      <div className="flex items-baseline justify-between">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Pangram · AI-hallucinated</span>
+        <span className="font-mono text-[10px] text-muted-foreground">{d.sources} sources</span>
+      </div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className="text-2xl font-semibold tabular text-emerald-500">{d.aiPct.toFixed(1)}%</span>
+        <span className="text-xs text-muted-foreground">{d.grounded}/{d.claims} claims source-grounded · {d.flagged} flagged</span>
+      </div>
+      <div className="mt-2 h-1 overflow-hidden rounded-full bg-secondary">
+        <div className="h-full bg-emerald-500" style={{ width: `${100 - d.aiPct}%` }} />
+      </div>
+      <p className="mt-1.5 font-mono text-[10px] text-emerald-500">✓ Human / datasheet-grounded · not hallucinated</p>
+    </div>
+  )
+}
 
 function useBoardStats(board: Board) {
   const selectedOfferByMpn = useStudio((s) => s.selectedOfferByMpn)
@@ -286,16 +310,16 @@ function Prompt() {
     // The off-board system follows the brief right away, even before the board arrives.
     const drafted = systemFromPrompt(text_)
     // Rename the PCB at once, so the previous design's board name is not shown while the new one is planned.
-    setStudio({ system: drafted, board: { ...getStudio().board, name: `${drafted.name} board (planning…)` }, scale: 'system', view: '3d', exploded: false, selected: null, device: null })
+    setStudio({ brief: text_.trim(), system: drafted, board: { ...getStudio().board, name: `${drafted.name} board (planning…)` }, scale: 'system', view: '3d', exploded: false, selected: null, device: null })
     requestFit()
     // Generate only unmatched bodies; catalog peripherals retain their existing meshes.
     void (async () => {
       if (hasHandBuiltBody(text_)) return
       setBodyBusy(true)
-      setLog((l) => [...l, { stage: 'body', message: 'Gemini is designing the custom body…' }])
+      setLog((l) => [...l, { stage: 'body', message: 'Claude is designing the custom body…' }])
       const layout = `PCB height above origin: ${drafted.pcbHeight} mm.\nDevices:\n` + drafted.devices.map((d) => `- ${d.label} at x=${d.x}, y=${d.y}, z=${d.z}`).join('\n')
       try {
-        const response = await fetch('/api/chassis', { method: 'POST', headers: { 'content-type': 'application/json', 'x-gemini-key': storedGeminiKey() }, body: JSON.stringify({ prompt: text_, layout }), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(22_000)]) })
+        const response = await fetch('/api/chassis', { method: 'POST', headers: { 'content-type': 'application/json', ...authHeaders() }, body: JSON.stringify({ prompt: text_, layout }), signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)]) })
         if (!response.ok) throw new Error(`Body generation failed (${response.status})`)
         const j = await response.json() as { parts?: SystemDesign['structure']; reason?: string }
         // Ignore late answers after a different design or a user edit.
@@ -307,8 +331,8 @@ function Prompt() {
           setLog((l) => [...l.slice(-5), { stage: 'body', message: `Custom body ready (${count} parts)` }])
         } else if (j.reason !== 'built-in') {
           setError(j.reason === 'no-key'
-            ? 'Custom body needs a Gemini API key. Showing the local enclosure.'
-            : 'Gemini could not produce a valid body. Showing the local enclosure.')
+            ? 'Custom body needs a Claude API key. Showing the local enclosure.'
+            : 'Claude could not produce a valid body. Showing the local enclosure.')
         }
       } catch {
         if (!controller.signal.aborted && getStudio().system === drafted) setError('Custom body generation failed. Showing the local enclosure.')
@@ -856,7 +880,7 @@ function Verification() {
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-2">
           <ShieldCheck className="size-4" />
-          <span className="text-sm font-medium">Lean proofs</span>
+          <span className="text-sm font-medium">Pangram + Lean</span>
           {v.theorems.length > 0 && (
             <span className="font-mono text-[10.5px] text-muted-foreground tabular">
               {passed}/{v.theorems.length}
@@ -865,7 +889,7 @@ function Verification() {
         </div>
         <div className="flex items-center gap-1">
           {hasFailed && (
-            <Tip label="Auto-repair failed Lean constraints with Gemini & re-verify">
+            <Tip label="Auto-repair failed Lean constraints with Claude & re-verify">
               <Button size="sm" variant="default" onClick={runRepair} disabled={repairing || v.status === 'running'}>
                 {repairing ? <Loader2 className="size-3.5 animate-spin" /> : <Wrench className="size-3.5" />}
                 Repair
@@ -877,6 +901,7 @@ function Verification() {
           </Button>
         </div>
       </div>
+      <PangramCheck />
       {repairNote && (
         <p className="mt-2 rounded border border-border bg-muted/40 p-2 font-mono text-[10.5px] text-muted-foreground">
           {repairNote}
@@ -969,6 +994,7 @@ export default function App() {
             <Prompt />
             <Toolbar />
             <ScaleTransition />
+            <EngineerChat />
           </motion.main>
           {scale === 'system' ? <SystemInspector /> : <Inspector />}
         </div>

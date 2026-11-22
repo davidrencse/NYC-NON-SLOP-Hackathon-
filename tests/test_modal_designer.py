@@ -11,7 +11,8 @@ class ModalDesignCacheTests(unittest.TestCase):
     def test_repeat_skips_inference_but_layout_and_model_changes_do_not(self):
         response = Mock(status_code=200)
         response.json.return_value = {
-            "candidates": [{"content": {"parts": [{"text": '{"parts":[{"shape":"box","mat":"metal","size":[120,4,160],"pos":[0,-2,0]}]}'}]}}],
+            "content": [{"type": "text", "text": '{"parts":[{"shape":"box","mat":"metal","size":[120,4,160],"pos":[0,-2,0]}]}'}],
+            "usage": {"input_tokens": 10, "output_tokens": 20},
         }
         with tempfile.TemporaryDirectory() as folder, patch("httpx.post", return_value=response) as post:
             options = {"api_key": "unit-test-key", "model": "fast-test-model", "cache_dir": Path(folder)}
@@ -22,7 +23,7 @@ class ModalDesignCacheTests(unittest.TestCase):
             self.assertTrue(second["cache_hit"])
             self.assertEqual(first["parts"], second["parts"])
             self.assertEqual(post.call_count, 1)
-            self.assertEqual(post.call_args.kwargs["timeout"], 20)
+            self.assertEqual(post.call_args.kwargs["timeout"], 60)
             design_body("origami folding rig", {**system, "pcbHeight": 20}, **options)
             self.assertEqual(post.call_count, 2)
             design_body("origami folding rig", system, **{**options, "model": "other-model"})
@@ -30,7 +31,7 @@ class ModalDesignCacheTests(unittest.TestCase):
 
     def test_invalid_answers_are_not_cached(self):
         response = Mock(status_code=200)
-        response.json.return_value = {"candidates": [{"content": {"parts": [{"text": '{"parts":[]}'}]}}]}
+        response.json.return_value = {"content": [{"type": "text", "text": '{"parts":[]}'}], "usage": {}}
         with tempfile.TemporaryDirectory() as folder, patch("httpx.post", return_value=response) as post:
             for _ in range(2):
                 design_body("origami rig", {}, api_key="unit-test-key", model="fast", cache_dir=Path(folder))

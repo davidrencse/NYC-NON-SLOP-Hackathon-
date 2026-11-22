@@ -687,9 +687,13 @@ function chirp(f) { if (!audio) return; const o = audio.createOscillator(), g = 
 $('#sound').onclick = () => { soundOn = !soundOn; if (soundOn) { audio ??= new AudioContext(); audio.resume(); chirp(440); } $('#sound').textContent = soundOn ? 'Sound on' : 'Sound off'; $('#sound').setAttribute('aria-pressed', String(soundOn)); };
 
 function frame(now) {
-  const dt = Math.min((now - last) / 1000, .05); last = now;
+  const dt = Math.min((now - last) / 1000, .1); last = now;
   if (!paused) elapsed = live.on ? liveTime(elapsed, dt * speed) : (elapsed + dt * speed) % LOOP;
   renderHud();
+  if (live.on && live.done && live.outcome === 'completed' && !live.told && elapsed >= phases[4].end - .05) {
+    live.told = true;
+    parent.postMessage({ source: 'forge-diorama', type: 'story-complete' }, location.origin);
+  }
   updateWorld(elapsed, paused ? 0 : dt * speed);
   updateCamera(elapsed, dt);
   updateOverlays(elapsed);
@@ -706,7 +710,7 @@ $('#loading').hidden = true; requestAnimationFrame(frame);
 const PHASE_OF = { requirements: 0, sourcing: 0, controller: 0, sensor: 0, compatibility: 1, reviewer: 1, evidence: 1, hold: 2, gate: 2, geometry: 3, verification: 3, export: 4 };
 const WHO = { requirements: ada, sourcing: milo, controller: milo, sensor: sol, compatibility: ada, reviewer: bea, evidence: noor, hold: pip, gate: pip, geometry: otto, verification: kit, export: pip };
 const STAGE_NAME = { requirements: 'Requirements', sourcing: 'Sourcing', controller: 'Controller', sensor: 'Sensor', compatibility: 'Compatibility', reviewer: 'Review', evidence: 'Evidence', hold: 'Hold', gate: 'Handoff', geometry: 'Geometry', verification: 'Verification', export: 'Export' };
-const live = { on: false, phase: 0, done: false, outcome: null, brief: '', mode: '', lines: [], say: new Map() };
+const live = { told: false, on: false, phase: 0, done: false, outcome: null, brief: '', mode: '', lines: [], say: new Map() };
 const trunc = (s, n = 90) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 function say(c, text) { if (c && text) live.say.set(c, { text: esc(trunc(text)), until: performance.now() + 5500 }); }
@@ -715,7 +719,7 @@ const reach = p => { if (p != null) live.phase = Math.max(live.phase, p); };
 function ingest(m) {
   switch (m.type) {
     case 'start':
-      Object.assign(live, { on: true, phase: 0, done: false, outcome: null, brief: m.brief || '', mode: m.mode || '', lines: [] }); live.say.clear();
+      Object.assign(live, { told: false, on: true, phase: 0, done: false, outcome: null, brief: m.brief || '', mode: m.mode || '', lines: [] }); live.say.clear();
       elapsed = 0; note('Run requested'); say(ada, 'New brief: ' + (m.brief || 'untitled')); break;
     case 'run': note('Research live · ' + (m.mode || 'agents')); say(pip, 'Everyone, we are live!'); break;
     case 'stage': {
@@ -748,7 +752,7 @@ function ingest(m) {
 // Pace the story to the live phase: loop inside it, catch up quickly when it advances.
 function liveTime(t, dt) {
   const p = live.phase, start = p ? phases[p - 1].end : 0, end = phases[p].end;
-  if (t < start) return Math.min(start, t + Math.max(dt * 6, (start - t) * dt * 1.5));
+  if (t < start) return t + dt; // behind the run: play forward at normal speed so no scene is skipped
   t += dt;
   if (t >= end) t = p === 2 || p === 4 || (live.done && live.outcome !== 'completed') ? end - .01 : start + .01;
   return t;

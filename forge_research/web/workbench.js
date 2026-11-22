@@ -60,7 +60,7 @@ export function setLiveGeminiStatus(isLive) {
   if (liveBtn) {
     liveBtn.disabled = !liveGeminiAvailable;
     liveBtn.title = liveGeminiAvailable
-      ? "Run live Gemini repair agent"
+      ? "Run live Claude repair agent"
       : "GEMINI_API_KEY / FORGE_GEMINI_MODEL not configured; use Scripted Offline Repair";
   }
 }
@@ -257,7 +257,7 @@ function renderStatusBar(project) {
   $("#sb-project-name").textContent = device_spec.project_name;
   $("#sb-revision").textContent = `Rev ${project.revision}`;
   const modeTag = $("#sb-exec-mode");
-  modeTag.textContent = project.mode === "offline" ? "Offline Fixture" : `Gemini (${project.model})`;
+  modeTag.textContent = project.mode === "offline" ? "Offline Fixture" : `${String(project.model).startsWith("claude") ? "Claude" : "Gemini"} (${project.model})`;
 
   $("#sb-total-cost").textContent = formatCents(cost.known_subtotal_usd_cents);
   const unp = $("#sb-unpriced-badge");
@@ -1140,7 +1140,7 @@ async function runRepair(mode) {
   banner.dataset.ok = "true";
   banner.textContent =
     mode === "live"
-      ? "Running Gemini repair agent & re-verifying in Lean 4…"
+      ? "Running Claude repair agent & re-verifying in Lean 4…"
       : "Running scripted offline repair & re-verifying in Lean 4…";
   $("#btn-repair-live").disabled = true;
   $("#btn-repair-sample").disabled = true;
@@ -1163,7 +1163,7 @@ async function runRepair(mode) {
     await loadProjectIntoWorkbench(data.project);
     banner.hidden = false;
     banner.dataset.ok = String(data.repaired);
-    const srcLabel = data.actor === "gemini" ? "Gemini" : "Offline scripted repair";
+    const srcLabel = data.actor === "claude" ? "Claude" : data.actor === "gemini" ? "Gemini" : "Offline scripted repair";
     banner.textContent =
       (data.repaired
         ? `✓ Repaired by ${srcLabel} in ${data.attempts} attempt(s) & verified in Lean 4: `
@@ -1302,6 +1302,7 @@ export function bindWorkbenchEvents(onNewBrief, onShowGraph) {
   });
   // Status bar actions
   $("#sb-proof-summary").addEventListener("click", () => switchInspectorTab("proofs"));
+  $("#sb-pangram-summary")?.addEventListener("click", () => switchInspectorTab("proofs"));
   $("#btn-undo").addEventListener("click", () => {
     if (currentProject && currentProject.revision > 1) {
       restoreToRevision(currentProject.revision - 1);

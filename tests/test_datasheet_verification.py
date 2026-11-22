@@ -96,7 +96,7 @@ class VerificationPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         env = patch.dict(os.environ, {"FORGE_CACHE_DIR": self.tmp.name, "REDUCTO_API_KEY": "fake",
-                                      "GEMINI_API_KEY": "fake", "GOOGLE_API_KEY": ""})
+                                      "ANTHROPIC_API_KEY": "fake", "GOOGLE_API_KEY": ""})
         env.start()
         self.addCleanup(env.stop)
         self.raw, self.read = fixture()
@@ -139,7 +139,7 @@ class VerificationPipelineTests(unittest.IsolatedAsyncioTestCase):
                     read.facts[0].conditions = "Only at 25 C"
                 self.raw, self.read = raw, read
                 self.review.side_effect = ReviewUnavailable("Gemini unavailable") if case == "failure" else lambda *a, **k: self.read.model_copy(deep=True)
-                with patch.dict(os.environ, {"GEMINI_API_KEY": "" if case == "no_key" else "fake"}):
+                with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "" if case == "no_key" else "fake"}):
                     ev = await ds.extract_part_evidence(PART)
                 self.assertFalse(ev.design_ready)
                 self.assertTrue(ev.blocking_reasons)
@@ -161,7 +161,7 @@ class VerificationPipelineTests(unittest.IsolatedAsyncioTestCase):
                     ds.require_cached_design_evidence([PART])
             await ds.require_design_evidence([PART])
             ds.require_cached_design_evidence([PART])
-            with patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
+            with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}):
                 with self.assertRaises(ds.EvidenceBlocked):
                     ds.require_cached_design_evidence([PART])
 
@@ -192,36 +192,41 @@ class VerificationPipelineTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(registry.status(), {})
 
 
-class GeminiAdapterTests(unittest.IsolatedAsyncioTestCase):
+def _claude_client(method: str, mock):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=SimpleNamespace(messages=SimpleNamespace(**{method: mock})))
+    client.__aexit__ = AsyncMock(return_value=False)
+    return client
+
+
+class ClaudeAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_sdk_receives_pdf_and_independent_schema_without_candidate_answers(self):
+        import base64
         from types import SimpleNamespace
-        from unittest.mock import MagicMock
-        from forge_research.providers import datasheet_review as provider
+        from forge_research.providers import claude, datasheet_review as provider
         _, read = fixture()
-        generate = AsyncMock(return_value=SimpleNamespace(text=read.model_dump_json(), usage_metadata=None))
-        client = MagicMock()
-        client.aio.__aenter__ = AsyncMock(return_value=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
-        client.aio.__aexit__ = AsyncMock(return_value=False)
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "fake"}), patch.object(provider.genai, "Client", return_value=client):
+        parse = AsyncMock(return_value=SimpleNamespace(parsed_output=read, usage=SimpleNamespace(input_tokens=1, output_tokens=1)))
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake"}), patch.object(claude, "claude_client", return_value=_claude_client("parse", parse)):
             result = await provider.read_pdf(b"%PDF-same-original", subject=PART.sku, manufacturer=PART.manufacturer)
         self.assertEqual(result, read)
-        request = generate.call_args.kwargs
-        self.assertEqual(request["contents"][0].inline_data.data, b"%PDF-same-original")
-        self.assertEqual(request["contents"][0].inline_data.mime_type, "application/pdf")
-        self.assertIs(request["config"].response_schema, provider.IndependentRead)
-        self.assertNotIn("Reducto", request["contents"][1])
+        request = parse.call_args.kwargs
+        content = request["messages"][0]["content"]
+        document = next(block for block in content if block["type"] == "document")
+        self.assertEqual(base64.b64decode(document["source"]["data"]), b"%PDF-same-original")
+        self.assertEqual(document["source"]["media_type"], "application/pdf")
+        self.assertIs(request["output_format"], provider.IndependentRead)
+        self.assertNotIn("Reducto", str(content))
 
     async def test_malformed_output_is_unavailable_and_does_not_leak_exception_text(self):
         from types import SimpleNamespace
-        from unittest.mock import MagicMock
-        from forge_research.providers import datasheet_review as provider
-        client = MagicMock()
-        client.aio.__aenter__ = AsyncMock(return_value=SimpleNamespace(models=SimpleNamespace(
-            generate_content=AsyncMock(return_value=SimpleNamespace(text="not-json", usage_metadata=None)))))
-        client.aio.__aexit__ = AsyncMock(return_value=False)
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "fake"}), patch.object(provider.genai, "Client", return_value=client):
-            with self.assertRaises(provider.ReviewUnavailable):
+        from forge_research.providers import claude, datasheet_review as provider
+        parse = AsyncMock(side_effect=ValueError("secret parser detail"))
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake"}), patch.object(claude, "claude_client", return_value=_claude_client("parse", parse)):
+            with self.assertRaises(provider.ReviewUnavailable) as caught:
                 await provider.read_pdf(b"%PDF", subject=PART.sku, manufacturer=PART.manufacturer)
+        self.assertNotIn("secret parser detail", str(caught.exception))
 
 
 class LiveDesignGateTests(unittest.IsolatedAsyncioTestCase):

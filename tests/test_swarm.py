@@ -28,7 +28,7 @@ class SwarmOfflineTest(unittest.TestCase):
         self.assertTrue(all(e["type"] == "swarm" for e in events))
 
     def test_live_without_key_falls_back_to_offline(self) -> None:
-        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": ""}):
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
             report = asyncio.run(swarm.run_swarm("brief", live=True))
         self.assertEqual(report.engine, "offline")
 

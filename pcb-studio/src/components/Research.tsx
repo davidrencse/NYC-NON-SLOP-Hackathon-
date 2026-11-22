@@ -55,7 +55,13 @@ export function ResearchPane() {
       } finally { if (!current.signal.aborted) setLoading(false) }
     }
     const on = (e: MessageEvent) => {
-      if (e.origin !== location.origin || e.source !== iframe.current?.contentWindow || e.data?.type !== 'forge:engineer') return
+      if (e.origin !== location.origin || e.source !== iframe.current?.contentWindow) return
+      if (e.data?.type === 'forge:engineer-brief' && typeof e.data.brief === 'string' && e.data.brief.trim()) {
+        const text = e.data.brief.trim().slice(0, 2000)
+        setStudio(text === getStudio().brief ? { mode: 'engineer' } : { mode: 'engineer', scale: 'system', selected: null, device: null, pendingPrompt: text })
+        return
+      }
+      if (e.data?.type !== 'forge:engineer') return
       void receive(e.data.reference)
     }
     window.addEventListener('message', on)
@@ -63,6 +69,17 @@ export function ResearchPane() {
     if (query.has('research')) void receive({ researchId: query.get('research'), bundleSha256: query.get('researchHash') })
     return () => { controller?.abort(); window.removeEventListener('message', on) }
   }, [])
+
+  // The studio always shows the brief typed in research: a new brief is built on the
+  // way in, so a wristband run never opens on the previous (or default rover) design.
+  const openStudio = () => {
+    let typed = ''
+    try { typed = iframe.current?.contentDocument?.querySelector<HTMLTextAreaElement>('#brief')?.value.trim() ?? '' } catch { /* cross-origin */ }
+    const s = getStudio()
+    if (typed && typed !== s.brief && !s.pendingPrompt && !isBoardGenerationInFlight()) {
+      setStudio({ mode: 'engineer', scale: 'system', selected: null, device: null, pendingPrompt: typed.slice(0, 2000) })
+    } else setStudio({ mode: 'engineer' })
+  }
 
   return (
     <>
@@ -84,7 +101,7 @@ export function ResearchPane() {
     {mode === 'research' && (
       <button
         type="button"
-        onClick={() => setStudio({ mode: 'engineer' })}
+        onClick={openStudio}
         className="fixed bottom-4 right-4 z-50 rounded-lg border border-white/20 bg-black/80 px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-white backdrop-blur-md hover:bg-white hover:text-black"
       >
         PCB Studio →

@@ -14,6 +14,7 @@ import { buildDevice } from './devices'
 import { partHeight } from './packages'
 import { BoardMesh, ExportBridge, Parts } from './Scene'
 import { handoff, takeHandoff } from './handoff'
+import { HoloSwap } from './HoloSwap'
 
 const anodized = new THREE.MeshPhysicalMaterial({ color: 0x24272b, roughness: 0.42, metalness: 0.75, clearcoat: 0.2 })
 const holeMat = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.9 })
@@ -224,6 +225,8 @@ function Device({ d, index, sys, onReady }: { d: SystemDevice; index: number; sy
   const selected = useStudio((s) => s.device === d.id)
   const hovered = useStudio((s) => s.hoveredDevice === d.id)
   const showCallouts = useStudio((s) => s.showCallouts)
+  const touring = useStudio((s) => s.touring)
+  const otherSelected = useStudio((s) => s.device !== null && s.device !== d.id && !s.touring)
   const g = useRef<THREE.Group>(null)
   const anim = useRef({ since: 0, from: 0, to: 0 })
   const lift = useRef(0)
@@ -275,14 +278,17 @@ function Device({ d, index, sys, onReady }: { d: SystemDevice; index: number; sy
       }}
     >
       <primitive object={model} />
-      {showCallouts && (
+      {selected && !touring && (
+        <HoloSwap key={d.catalogId} dev={d} index={index} position={d.stand ? [0, 4, item.dimensions.h / 2 + 4] : [0, tag + 2, 0]} />
+      )}
+      {showCallouts && !(selected && !touring) && (
         <Html
           position={d.stand ? [0, 4, item.dimensions.h / 2 + 8] : [d.bus === 'motor' ? item.dimensions.w * 0.1 : 0, tag + 8, 0]}
           center
           zIndexRange={[20, 0]}
           style={{ pointerEvents: 'none' }}
         >
-          <div className={`forge-tag ${selected ? 'is-active' : ''} ${hovered ? 'is-hover' : ''}`}>
+          <div className={`forge-tag ${selected ? 'is-active' : ''} ${hovered ? 'is-hover' : ''} ${otherSelected && !hovered ? 'is-dim' : ''}`}>
             <span className="forge-tag-n">{String(index + 1).padStart(2, '0')}</span>
             <span>{item.name}</span>
             <span className="forge-tag-sub">{d.port}</span>

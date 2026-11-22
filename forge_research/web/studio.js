@@ -33,7 +33,7 @@ const tightBrief =
   "Design a BLE wristband using EMG muscle sensors for finger gestures. Keep core parts under $80 and size the strap for a 175 mm wrist.";
 
 let pending = false;
-let liveProviderName = "Gemini";
+let liveProviderName = "Claude";
 let researchController = null;
 let latestCompletedReport = null;
 
@@ -82,7 +82,7 @@ function renderBlockedReport(report) {
     candidate: "Candidate report",
   };
   $("#blocked-mode").textContent = `${
-    report.mode === "offline" ? "Offline sample" : `Gemini (${report.model})`
+    report.mode === "offline" ? "Offline sample" : `${String(report.model).startsWith("claude") ? "Claude" : "Gemini"} (${report.model})`
   } · ${statusMap[report.review.status] || report.review.status}`;
   $("#blocked-brief").textContent = report.brief;
 
@@ -169,8 +169,9 @@ async function startResearch(mode) {
     finishResearchMap("completed", "", report);
     // Unresolved datasheet evidence must not be bypassed by the PCB handoff.
     if (!report.brief) report.brief = mode === "sample" ? sampleBrief : value;
-    $("#engineer-pcb-btn").hidden = !!report.evidence_blocked;
-    $("#btn-engineer-pcb").hidden = !!report.evidence_blocked;
+    // Blocked evidence still lets the studio build from the brief alone (no research certificate).
+    $("#engineer-pcb-btn").hidden = false;
+    $("#btn-engineer-pcb").hidden = false;
     if (report.project) $("#open-workbench-btn").hidden = false;
     // The explicit Engineer PCB action keeps the validation report inspectable.
   } catch (error) {
@@ -203,7 +204,14 @@ let pcbUrl = sameOriginStudio ? `${location.origin}/` : "http://localhost:5173/"
 let sessionLoaded = Promise.resolve();
 async function engineerPcb() {
   const report = latestCompletedReport;
-  if (!report || report.evidence_blocked) return;
+  if (!report) return;
+  if (report.evidence_blocked) {
+    // Brief-only handoff: the studio builds its own design for this brief.
+    const text = (report.brief || brief.value || "").trim();
+    if (window.parent !== window) window.parent.postMessage({ type: "forge:engineer-brief", brief: text }, location.origin);
+    else { await sessionLoaded; const url = new URL(pcbUrl); url.searchParams.set("brief", text); location.assign(url); }
+    return;
+  }
   const buttons = [$("#engineer-pcb-btn"), $("#btn-engineer-pcb")];
   buttons.forEach(button => { button.disabled = true; });
   document.querySelector("#engineering-handoff-error")?.remove();
@@ -270,6 +278,16 @@ brief.addEventListener("input", () => {
   brief.removeAttribute("aria-invalid");
   if (!pending) showFeedback("");
 });
+const ROVER_BRIEF =
+  "Design a 4WD rover robot for under $120: an ESP32 controls four TT gear motors through a " +
+  "TB6612FNG dual motor driver, an HC-SR04 ultrasonic sensor avoids obstacles, a WS2812 LED shows " +
+  "status, and a 2S 7.4V LiPo battery powers it through a regulator. Drive it from my phone over Wi-Fi.";
+$("#fill-rover")?.addEventListener("click", () => {
+  brief.value = ROVER_BRIEF;
+  brief.removeAttribute("aria-invalid");
+  showFeedback("");
+  brief.focus();
+});
 exampleButton.addEventListener("click", () => {
   brief.value = sampleBrief;
   brief.removeAttribute("aria-invalid");
@@ -310,9 +328,14 @@ function applySession(sess) {
   connection.hidden = !!sess.live;
   connection.lastElementChild.textContent = sess.live ? "" : "Offline";
   setLiveGeminiStatus(sess.live);
-  liveProviderName = "Gemini";
+  liveProviderName = sess.provider === "gemini" ? "Gemini" : "Claude";
   if (!pending) runLabel.textContent = `Research with ${liveProviderName}`;
   if (sess.sample_brief) sampleBrief = sess.sample_brief;
+  // Modal is the CAD path; if a job cannot run there it renders on this machine with the same CadQuery code.
+  const modal = "Modal cloud workers";
+  const agents = sess.live ? `${liveProviderName}${sess.live_model ? " (" + sess.live_model + ")" : ""}` : "offline replay";
+  $("#engine-text").textContent = `Agents on ${agents} · CAD on ${modal}`;
+  document.documentElement.dataset.engine = `${sess.live ? liveProviderName : "Offline"} · Modal`;
 }
 
 sessionLoaded = Promise.all([

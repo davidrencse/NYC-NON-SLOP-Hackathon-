@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
 import { loadEnv, runnerImport, type Plugin } from 'vite'
-import { callGemini, MODELS, resolveApiKey } from './gemini.ts'
+import { callClaude, CLAUDE_TIERS, resolveClaudeKey } from './claude.ts'
 import { verifyCertificate } from './verify.ts'
 import type { Certificate } from '../src/verify/types.ts'
 import type { Board as BoardData } from '../src/data/board.ts'
@@ -256,13 +256,13 @@ export function repairPlugin(): Plugin {
 
           const working: BoardData = JSON.parse(JSON.stringify(inputBoard))
           const failedTheorems = initialVer.theorems.filter((t) => !t.ok)
-          const apiKey = resolveApiKey(env)
+          const apiKey = resolveClaudeKey(env)
           let aiRationale = ''
-          let actor: 'gemini' | 'deterministic_solver' = 'deterministic_solver'
+          let actor: 'claude' | 'deterministic_solver' = 'deterministic_solver'
 
           if (apiKey) {
             try {
-              const model = env.FORGE_GEMINI_MODEL || MODELS.carbon
+              const model = CLAUDE_TIERS.argon.model
               const promptSummary = {
                 boardSize: { width: working.width, height: working.height },
                 failedTheorems: failedTheorems.map((t) => ({ name: t.name, statement: t.statement, error: t.error })),
@@ -276,8 +276,9 @@ export function repairPlugin(): Plugin {
                   width: n.width ?? 0.35,
                 })),
               }
-              const patch = (await callGemini(apiKey, {
+              const patch = (await callClaude(apiKey, {
                 model,
+                effort: 'medium',
                 system:
                   'You are Forge PCB Studio autonomous Lean 4 repair engineer. Given failed formal PCB theorems and diagnostics, ' +
                   'propose minimal partMoves, netEdits (switching crossing traces between top and bottom copper or widening traces for ampacity), ' +
@@ -285,7 +286,7 @@ export function repairPlugin(): Plugin {
                 prompt: JSON.stringify(promptSummary),
                 schema: REPAIR_SCHEMA,
                 temperature: 0.2,
-                timeoutMs: 45_000,
+                timeoutMs: 90_000,
               })) as {
                 width?: number
                 height?: number
@@ -294,7 +295,7 @@ export function repairPlugin(): Plugin {
                 rationale?: string
               }
 
-              actor = 'gemini'
+              actor = 'claude'
               if (typeof patch.width === 'number' && patch.width >= working.width && patch.width <= 160) {
                 working.width = Math.round(patch.width)
               }
@@ -318,7 +319,7 @@ export function repairPlugin(): Plugin {
               }
               aiRationale = patch.rationale ?? ''
             } catch {
-              /* fall through to deterministic routing/bounds repair if Gemini call times out */
+              /* fall through to deterministic routing/bounds repair if the Claude call times out */
             }
           }
 

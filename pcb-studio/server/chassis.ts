@@ -1,8 +1,8 @@
-// POST /api/chassis: Gemini designs the mechanical body for any product as a list
+// POST /api/chassis: Claude designs the mechanical body for any product as a list
 // of primitive solids. The studio renders them with three.js. No recipe per product.
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createHash } from 'node:crypto'
-import { callGemini, MODELS, resolveApiKey } from './gemini.ts'
+import { callClaude, CLAUDE_TIERS, resolveClaudeKey } from './claude.ts'
 import { readJson, sendJson } from './http.ts'
 import { hasBuiltInBody } from '../src/data/bodyPolicy.ts'
 
@@ -94,12 +94,12 @@ export function chassisHandler(env: () => Record<string, string | undefined>, lo
     if (!prompt) return sendJson(res, 400, { type: 'error', message: 'prompt is required' })
     // Preserve built-ins even for callers outside the studio UI.
     if (hasBuiltInBody(prompt)) return sendJson(res, 200, { parts: [], reason: 'built-in' })
-    const sent = req.headers['x-gemini-key']
-    const apiKey = (typeof sent === 'string' && /^[\w-]{20,200}$/.test(sent) ? sent : '') || resolveApiKey(env())
+    const sent = req.headers['x-claude-key'] ?? req.headers['x-gemini-key']
+    const apiKey = (typeof sent === 'string' && /^sk-ant-[\w-]{20,200}$/.test(sent) ? sent : '') || resolveClaudeKey(env())
     if (!apiKey) return sendJson(res, 200, { parts: [], reason: 'no-key' })
     const layout = typeof body.layout === 'string' ? body.layout.slice(0, 3000) : ''
     const config = env()
-    const model = config.GEMINI_CHASSIS_MODEL || config.GEMINI_FAST_MODEL || MODELS.carbon
+    const model = config.FORGE_CLAUDE_CHASSIS_MODEL || CLAUDE_TIERS.carbon.model
     const key = createHash('sha256').update(JSON.stringify([apiKey, model, prompt, layout])).digest('hex')
     const hit = cache.get(key)
     if (hit && hit.expires > Date.now()) return reply(hit.result, 'hit')
@@ -110,7 +110,7 @@ export function chassisHandler(env: () => Record<string, string | undefined>, lo
     const job = (async (): Promise<Result> => {
       try {
         // One attempt within a total deadline: retries must not leave previews waiting minutes.
-        const raw = await callGemini(apiKey, { model, system: SYSTEM, prompt: `Product: ${prompt}\n\n${layout}`, schema: SCHEMA, timeoutMs: 20_000, signal: AbortSignal.timeout(20_000), maxAttempts: 1 })
+        const raw = await callClaude(apiKey, { model, effort: 'low', system: SYSTEM, prompt: `Product: ${prompt}\n\n${layout}`, schema: SCHEMA, timeoutMs: 55_000, signal: AbortSignal.timeout(55_000), maxAttempts: 1 })
         const parts = cleanParts(raw)
         log(`chassis: ${parts.length} parts`)
         const result = { parts, ...(parts.length ? {} : { reason: 'invalid-geometry' }) }

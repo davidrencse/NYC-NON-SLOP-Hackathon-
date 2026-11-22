@@ -1,4 +1,6 @@
 import type { LlmCall } from './types'
+// Wrist briefs always get the wristband: no drive motors on a band, even when it controls a rover.
+const WRIST_BRIEF = /wrist|bracelet|armband|wearable|forearm|smart ?watch/
 
 /**
  * Deterministic, key-free stand-in for the Gemini calls made by runPipeline.
@@ -1082,7 +1084,7 @@ class Planner {
     const stepDrv = this.find(['a4988', 'drv8825', 'tmc2209'])
     let stepN = stepDrv && (x.steppers || /stepper/.test(q)) ? Math.min(said('steppers?') || x.steppers || (/steppers/.test(q) ? 2 : 1), 4) : 0
     const motorDrv = this.find(['tb6612fng', /tb6612/i, 'drv8833'])
-    const wantsMotors = !x.noMotors && !!motorDrv && /\bmotor|wheel|rover|robot|\bcar\b|4wd|2wd|\bdrive\b|tank|mecanum|propel|vehicle|buggy|truck/.test(q) && !/\bstepper motor|servo motor|fish tank|water tank/.test(q)
+    const wantsMotors = !x.noMotors && !!motorDrv && !WRIST_BRIEF.test(q) && /\bmotor|wheel|rover|robot|\bcar\b|4wd|2wd|\bdrive\b|tank|mecanum|propel|vehicle|buggy|truck/.test(q) && !/\bstepper motor|servo motor|fish tank|water tank/.test(q)
     let motorN = wantsMotors ? (/4wd|four.?wheel|4 ?motors|four motors|mecanum|quad/.test(q) ? 4 : Math.min(countOf(q, 'motors?', 2), 4)) : 0
     const actCost = () => servoN + (stepN ? 2 * stepN + 1 : 0) + 3 * motorN
     while (actCost() > this.gpio - 1 && (servoN > 1 || stepN > 1 || motorN > 2)) {

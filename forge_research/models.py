@@ -120,7 +120,7 @@ class TraceEvent(BaseModel):
 
 class ResearchReport(BaseModel):
     schema_version: Literal[1] = 1
-    mode: Literal["offline", "gemini", "nous"]
+    mode: Literal["offline", "claude", "gemini", "nous"]
     model: str
     brief: str
     requirements: Requirements
@@ -245,7 +245,7 @@ class RevisionDiff(BaseModel):
 class ActivityEntry(BaseModel):
     timestamp: datetime
     revision: int
-    actor: Literal["user", "gemini", "nous", "offline_fixture", "lean", "geometry", "bom", "shop_mcp"]
+    actor: Literal["user", "claude", "gemini", "nous", "offline_fixture", "lean", "geometry", "bom", "shop_mcp"]
     kind: str
     title: str
     detail: str

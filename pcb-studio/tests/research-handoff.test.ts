@@ -108,7 +108,7 @@ test('generation route passes the server snapshot, rejects edited briefs, and ne
   })
   async function request(prompt: string) {
     const req = Object.assign(Readable.from([Buffer.from(JSON.stringify({ prompt, research: reference(context), snapshot: { fake: true } }))]), {
-      method: 'POST', headers: { 'x-gemini-key': 'test-key-that-is-never-used' },
+      method: 'POST', headers: { 'x-claude-key': 'sk-ant-test-key-that-is-never-used' },
     })
     let output = ''
     const res = Object.assign(new EventEmitter(), {
