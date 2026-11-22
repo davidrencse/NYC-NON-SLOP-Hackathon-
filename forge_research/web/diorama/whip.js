@@ -13,6 +13,19 @@ export function createWhip(T, scene, camera, canvas, crew, nav) {
   let enabled = false, nodes = null, pointer = { x: 0, y: 0 }, last = performance.now();
   let lastCrack = -Infinity, activeUntil = 0, struck = false, audio;
   const ray = new T.Raycaster();
+  const soundControl = document.querySelector('#sound'), soundButton = document.createElement('button');
+  soundButton.title = 'Toggle workshop and whip sounds'; nav.insertBefore(soundButton, button);
+  function syncSound() {
+    const on = soundControl.getAttribute('aria-pressed') === 'true';
+    soundButton.textContent = on ? 'Sound on' : 'Sound off';
+    soundButton.setAttribute('aria-pressed', String(on));
+    if (on) {
+      try { audio ??= new AudioContext(); audio.resume().catch(error => console.warn('Whip audio unavailable', error)); }
+      catch (error) { console.warn('Whip audio unavailable', error); }
+    } else if (audio?.state === 'running') audio.suspend().catch(error => console.warn('Could not mute whip audio', error));
+  }
+  soundButton.onclick = () => { soundControl.click(); syncSound(); };
+  soundControl.addEventListener('click', () => queueMicrotask(syncSound)); syncSound();
   function clear() {
     nodes = null; activeUntil = 0; lastCrack = -Infinity; struck = false;
     ctx.clearRect(0, 0, overlay.width, overlay.height);
@@ -22,15 +35,30 @@ export function createWhip(T, scene, camera, canvas, crew, nav) {
     enabled = on; clear(); button.textContent = `Whip · ${on ? 'on' : 'off'}`;
     button.setAttribute('aria-pressed', String(on)); canvas.style.cursor = on ? 'crosshair' : '';
   }
-  function sound() {
-    if (document.querySelector('#sound')?.getAttribute('aria-pressed') !== 'true') return;
-    audio ??= new AudioContext(); audio.resume();
-    const buffer = audio.createBuffer(1, audio.sampleRate * .045, audio.sampleRate);
+  function sound(hit = false) {
+    if (soundControl.getAttribute('aria-pressed') !== 'true' || audio?.state !== 'running') return;
+    const now = audio.currentTime, gain = audio.createGain();
+    gain.connect(audio.destination);
+    if (hit) {
+      const pop = audio.createOscillator(); pop.type = 'sine';
+      pop.frequency.setValueAtTime(520, now); pop.frequency.exponentialRampToValueAtTime(150, now + .09);
+      gain.gain.setValueAtTime(.15, now); gain.gain.exponentialRampToValueAtTime(.001, now + .11);
+      pop.connect(gain); pop.start(); pop.stop(now + .12);
+      pop.onended = () => { pop.disconnect(); gain.disconnect(); };
+      return;
+    }
+    const buffer = audio.createBuffer(1, Math.ceil(audio.sampleRate * .16), audio.sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length) ** 4;
-    const source = audio.createBufferSource(), gain = audio.createGain();
-    source.buffer = buffer; gain.gain.value = .12; source.connect(gain); gain.connect(audio.destination); source.start();
-    source.onended = () => { source.disconnect(); gain.disconnect(); };
+    for (let i = 0; i < data.length; i++) {
+      const t = i / audio.sampleRate;
+      const envelope = t < .09 ? .18 * Math.sin(t / .09 * Math.PI) : Math.exp(-(t - .09) * 95);
+      data[i] = (Math.random() * 2 - 1) * envelope;
+    }
+    const source = audio.createBufferSource(), filter = audio.createBiquadFilter();
+    filter.type = 'highpass'; filter.frequency.value = 900;
+    source.buffer = buffer; gain.gain.value = .24;
+    source.connect(filter); filter.connect(gain); source.start();
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
   }
   function point(e) {
     const r = canvas.getBoundingClientRect(); pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -64,7 +92,7 @@ export function createWhip(T, scene, camera, canvas, crew, nav) {
         return h.object.material?.opacity !== 0;
       });
       const actor = actorAt(hit ? [hit] : [], crew);
-      if (actor) { hitActor(actor, now); struck = true; return; }
+      if (actor) { hitActor(actor, now); struck = true; sound(true); return; }
     }
   }
   function draw(now) {
